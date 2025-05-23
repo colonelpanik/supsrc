@@ -74,10 +74,10 @@ def watch_cli(ctx: click.Context, config_path: Path, tui: bool):
             click.echo("Error: TUI mode requires 'supsrc[tui]' to be installed and importable.", err=True)
             click.echo("Hint: pip install 'supsrc[tui]' or check for errors in src/supsrc/tui/app.py", err=True)
             ctx.exit(1)
-        _cli_safe_log("info", "Initializing TUI mode...")
+        log.info("Initializing TUI mode...")
         app = SupsrcTuiApp(config_path=config_path, cli_shutdown_event=_shutdown_requested)
         app.run()
-        _cli_safe_log("info", "TUI application finished.")
+        log.info("TUI application finished.")
 
     else:
         # --- Standard Mode Logic ---
@@ -90,10 +90,10 @@ def watch_cli(ctx: click.Context, config_path: Path, tui: bool):
         except RuntimeError: loop = asyncio.new_event_loop(); asyncio.set_event_loop(loop)
 
         signals_to_handle = (signal.SIGINT, signal.SIGTERM); handlers_added = False
-        _cli_safe_log("debug", f"Adding signal handlers to loop {id(loop)}")
+        log.debug(f"Adding signal handlers to loop {id(loop)}")
         try:
             for sig in signals_to_handle: loop.add_signal_handler(sig, lambda s=sig: asyncio.create_task(_handle_signal_async(s))); handlers_added = True
-            _cli_safe_log("debug", "Added signal handlers")
+            log.debug("Added signal handlers")
         except Exception as e:
             # _cli_safe_log("error", "Failed to add signal handlers", error=str(e), exc_info=True)
             log.error("Failed to add signal handlers", error=str(e), exc_info=True) # Use structlog here
