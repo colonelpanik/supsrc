@@ -1,8 +1,12 @@
 # file: src/supsrc/cli/watch_cmds.py
 
+# file: src/supsrc/cli/watch_cmds.py
+
 import asyncio
 import logging
 import signal
+# --- Rich Imports ---
+from rich.console import Console
 import sys
 from contextlib import suppress
 from pathlib import Path
@@ -61,8 +65,8 @@ async def _handle_signal_async(sig: int):
 @click.pass_context
 def watch_cli(ctx: click.Context, config_path: Path, tui: bool):
     """Monitor configured repositories for changes and trigger actions."""
-    def _cli_safe_log(level: str, msg: str, **kwargs):
-        with suppress(Exception): getattr(log, level)(msg, **kwargs)
+    # def _cli_safe_log(level: str, msg: str, **kwargs): # Replaced with direct console prints or structlog
+    #     with suppress(Exception): getattr(log, level)(msg, **kwargs)
 
     if tui:
         # (TUI logic remains the same)
@@ -77,7 +81,9 @@ def watch_cli(ctx: click.Context, config_path: Path, tui: bool):
 
     else:
         # --- Standard Mode Logic ---
-        _cli_safe_log("info", "Initializing standard 'watch' command (non-TUI)")
+        console = Console() # Create Rich Console instance
+        # _cli_safe_log("info", "Initializing standard 'watch' command (non-TUI)")
+        console.print("[dim]INFO:[/] Initializing standard 'watch' command (non-TUI)...")
         try:
             loop = asyncio.get_event_loop_policy().get_event_loop()
             if loop.is_closed(): loop = asyncio.new_event_loop(); asyncio.set_event_loop(loop)
@@ -88,41 +94,64 @@ def watch_cli(ctx: click.Context, config_path: Path, tui: bool):
         try:
             for sig in signals_to_handle: loop.add_signal_handler(sig, lambda s=sig: asyncio.create_task(_handle_signal_async(s))); handlers_added = True
             _cli_safe_log("debug", "Added signal handlers")
-        except Exception as e: _cli_safe_log("error", "Failed to add signal handlers", error=str(e), exc_info=True)
+        except Exception as e:
+            # _cli_safe_log("error", "Failed to add signal handlers", error=str(e), exc_info=True)
+            log.error("Failed to add signal handlers", error=str(e), exc_info=True) # Use structlog here
 
-        orchestrator = WatchOrchestrator(config_path=config_path, shutdown_event=_shutdown_requested, app=None)
+        orchestrator = WatchOrchestrator(config_path=config_path, shutdown_event=_shutdown_requested, app=None, console=console)
         exit_code = 0
         main_task: asyncio.Task | None = None
         try:
-            _cli_safe_log("debug", "Creating main orchestrator task...")
+            # _cli_safe_log("debug", "Creating main orchestrator task...")
+            log.debug("Creating main orchestrator task...") # Use structlog
             main_task = loop.create_task(orchestrator.run(), name="OrchestratorRun")
-            _cli_safe_log("debug", f"Running event loop {id(loop)}...")
+            # _cli_safe_log("debug", f"Running event loop {id(loop)}...")
+            log.debug(f"Running event loop {id(loop)}...") # Use structlog
             loop.run_until_complete(main_task)
-            _cli_safe_log("debug", "Orchestrator task completed normally.")
-        except KeyboardInterrupt: _cli_safe_log("warning", "KeyboardInterrupt caught. Signalling shutdown."); _shutdown_requested.set(); exit_code = 130
-        except asyncio.CancelledError: _cli_safe_log("warning", "Main orchestrator task cancelled."); _shutdown_requested.set(); exit_code = 1
-        except Exception as e: _cli_safe_log("critical", "Orchestrator run failed", error=str(e), exc_info=True); _shutdown_requested.set(); exit_code = 1
+            # _cli_safe_log("debug", "Orchestrator task completed normally.")
+            log.debug("Orchestrator task completed normally.") # Use structlog
+        except KeyboardInterrupt:
+            # _cli_safe_log("warning", "KeyboardInterrupt caught. Signalling shutdown.")
+            console.print("[bold yellow]KEYBOARD INTERRUPT:[/] Signal received. Initiating graceful shutdown...", highlight=False)
+            log.warning("KeyboardInterrupt caught. Signalling shutdown.") # Use structlog
+            _shutdown_requested.set()
+            exit_code = 130
+        except asyncio.CancelledError:
+            # _cli_safe_log("warning", "Main orchestrator task cancelled.")
+            log.warning("Main orchestrator task cancelled.") # Use structlog
+            _shutdown_requested.set()
+            exit_code = 1
+        except Exception as e:
+            # _cli_safe_log("critical", "Orchestrator run failed", error=str(e), exc_info=True)
+            log.critical("Orchestrator run failed", error=str(e), exc_info=True) # Use structlog
+            console.print(f"[bold red]CRITICAL:[/] Orchestrator run failed: {e}", highlight=False)
+            _shutdown_requested.set()
+            exit_code = 1
         finally:
-            _cli_safe_log("debug", f"watch_cli (non-TUI) finally block starting. Loop closed: {loop.is_closed()}")
+            # _cli_safe_log("debug", f"watch_cli (non-TUI) finally block starting. Loop closed: {loop.is_closed()}")
+            log.debug(f"watch_cli (non-TUI) finally block starting. Loop closed: {loop.is_closed()}")
 
             # --- FIX: Graceful Task Cleanup using loop.run_until_complete ---
             if not loop.is_closed():
                 try:
                     # Ensure main task cancellation propagates if needed
                     if main_task and not main_task.done():
-                        _cli_safe_log("debug", "Waiting briefly for main task cancellation...")
+                        # _cli_safe_log("debug", "Waiting briefly for main task cancellation...")
+                        log.debug("Waiting briefly for main task cancellation...")
                         main_task.cancel() # Explicitly cancel if not done
                         with suppress(asyncio.CancelledError, asyncio.TimeoutError):
                              # Run within loop until complete
                              loop.run_until_complete(asyncio.wait_for(main_task, timeout=1.0))
 
                     # Gather all *other* remaining tasks
-                    tasks = asyncio.all_tasks(loop=loop)
+                    tasks = asyncio.all_tasks(loop=loop) # type: ignore[var-annotated]
                     current_task = asyncio.current_task(loop=loop) # May be None if outside run_until_complete
-                    tasks_to_wait_for = {t for t in tasks if t is not current_task and t is not main_task and not t.done()}
+                    tasks_to_wait_for = {t for t in tasks if t is not current_task and t is not main_task and not t.done()} # type: ignore[var-annotated]
 
                     if tasks_to_wait_for:
-                        _cli_safe_log("debug", f"Gathering results for {len(tasks_to_wait_for)} remaining background tasks...",
+                        # _cli_safe_log("debug", f"Gathering results for {len(tasks_to_wait_for)} remaining background tasks...",
+                        #               task_names=[t.get_name() for t in tasks_to_wait_for])
+                        log.debug(f"Gathering results for {len(tasks_to_wait_for)} remaining background tasks...",
                                       task_names=[t.get_name() for t in tasks_to_wait_for])
                         for task in tasks_to_wait_for:
                             if not task.cancelled():
@@ -131,44 +160,58 @@ def watch_cli(ctx: click.Context, config_path: Path, tui: bool):
                         loop.run_until_complete(
                             asyncio.gather(*tasks_to_wait_for, return_exceptions=True)
                         )
-                        _cli_safe_log("debug", "Remaining background tasks gathered after potential cancellation.")
+                        # _cli_safe_log("debug", "Remaining background tasks gathered after potential cancellation.")
+                        log.debug("Remaining background tasks gathered after potential cancellation.")
                     else:
-                        _cli_safe_log("debug", "No remaining background tasks needed gathering.")
+                        # _cli_safe_log("debug", "No remaining background tasks needed gathering.")
+                        log.debug("No remaining background tasks needed gathering.")
                 except Exception as task_cleanup_exc:
-                    _cli_safe_log("error", "Error during final task gathering/cleanup", error=str(task_cleanup_exc))
+                    # _cli_safe_log("error", "Error during final task gathering/cleanup", error=str(task_cleanup_exc))
+                    log.error("Error during final task gathering/cleanup", error=str(task_cleanup_exc))
             # --- End FIX ---
 
             # --- Existing Cleanup ---
             if handlers_added and not loop.is_closed():
-                 _cli_safe_log("debug", "Removing signal handlers")
+                 # _cli_safe_log("debug", "Removing signal handlers")
+                 log.debug("Removing signal handlers")
                  for sig in signals_to_handle:
                       with suppress(ValueError, RuntimeError, Exception):
                            loop.remove_signal_handler(sig)
-                           _cli_safe_log("debug", f"Removed signal handler for {signal.Signals(sig).name}")
+                           # _cli_safe_log("debug", f"Removed signal handler for {signal.Signals(sig).name}")
+                           log.debug(f"Removed signal handler for {signal.Signals(sig).name}")
 
-            _cli_safe_log("debug", "Shutting down standard logging...")
+            # _cli_safe_log("debug", "Shutting down standard logging...")
+            log.debug("Shutting down standard logging...")
             with suppress(Exception): logging.shutdown()
 
-            _cli_safe_log("debug", f"Closing event loop {id(loop)}")
+            # _cli_safe_log("debug", f"Closing event loop {id(loop)}")
+            log.debug(f"Closing event loop {id(loop)}")
             if not loop.is_closed():
                 try:
                     # Shutdown async generators FIRST
                     loop.run_until_complete(loop.shutdown_asyncgens())
-                    _cli_safe_log("debug", "Async generators shut down.")
+                    # _cli_safe_log("debug", "Async generators shut down.")
+                    log.debug("Async generators shut down.")
                     # THEN close the loop
                     loop.close()
-                    _cli_safe_log("info", "Event loop closed.")
+                    # _cli_safe_log("info", "Event loop closed.")
+                    log.info("Event loop closed.")
                 except RuntimeError as e:
                     if "cannot schedule new futures after shutdown" in str(e):
-                        _cli_safe_log("warning", "Loop shutdown encountered scheduling issue, likely benign after cleanup.")
+                        # _cli_safe_log("warning", "Loop shutdown encountered scheduling issue, likely benign after cleanup.")
+                        log.warning("Loop shutdown encountered scheduling issue, likely benign after cleanup.")
                     else:
-                        _cli_safe_log("error", "Error during final event loop close", error=str(e), exc_info=True)
+                        # _cli_safe_log("error", "Error during final event loop close", error=str(e), exc_info=True)
+                        log.error("Error during final event loop close", error=str(e), exc_info=True)
                 except Exception as e:
-                     _cli_safe_log("error", "Error during final event loop close", error=str(e), exc_info=True)
+                     # _cli_safe_log("error", "Error during final event loop close", error=str(e), exc_info=True)
+                     log.error("Error during final event loop close", error=str(e), exc_info=True)
             else:
-                 _cli_safe_log("warning", "Event loop was already closed before final cleanup.")
+                 # _cli_safe_log("warning", "Event loop was already closed before final cleanup.")
+                 log.warning("Event loop was already closed before final cleanup.")
 
-        _cli_safe_log("info", "'watch' command finished (non-TUI mode).")
+        # _cli_safe_log("info", "'watch' command finished (non-TUI mode).")
+        console.print("[dim]INFO:[/] 'watch' command finished.")
         if exit_code != 0:
             sys.exit(exit_code)
 

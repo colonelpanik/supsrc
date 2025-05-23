@@ -5,6 +5,7 @@
 import asyncio
 import time  # Import time for unique task names
 from contextlib import suppress  # For cleaner task cancellation handling
+from rich.console import Console
 from pathlib import Path
 from typing import Any, Optional, TypeAlias, cast
 
@@ -66,7 +67,8 @@ class WatchOrchestrator:
         self,
         config_path: Path,
         shutdown_event: asyncio.Event,
-        app: Optional["TextualApp"] = None # Accept optional TUI app instance
+        app: Optional["TextualApp"] = None, # Accept optional TUI app instance
+        console: Console | None = None
         ) -> None:
         """
         Initializes the orchestrator.
@@ -75,10 +77,12 @@ class WatchOrchestrator:
             config_path: Path to the configuration file.
             shutdown_event: Event signalling graceful shutdown.
             app: Optional instance of the Textual TUI application.
+            console: Optional instance of Rich Console for non-TUI output.
         """
         self.config_path = config_path
         self.shutdown_event = shutdown_event
         self.app: TextualApp | None = app if TEXTUAL_AVAILABLE_RUNTIME else None # Store the TUI app instance only if usable
+        self.console = console
         self.config: SupsrcConfig | None = None
         self.monitor_service: MonitoringService | None = None
         self.event_queue: asyncio.Queue[MonitoredEvent] = asyncio.Queue()
@@ -88,7 +92,18 @@ class WatchOrchestrator:
         self._log = log.bind(orchestrator_id=id(self))
         self._is_tui_active = bool(self.app) # Flag for easier checking
 
-    # --- TUI Update Helpers ---
+    # --- Console and TUI Update Helpers ---
+
+    def _console_message(self, message: str, repo_id: str | None = None, style: str | None = None, emoji: str | None = None) -> None:
+        """Helper to print messages to the Rich console if available (non-TUI mode)."""
+        if self.console and not self._is_tui_active: # Only print if console exists and not in TUI mode
+            formatted_message = message
+            if repo_id:
+                # Using a consistent repo_id style for console messages
+                formatted_message = f"[bold blue]{repo_id}[/]: {formatted_message}"
+            if emoji:
+                formatted_message = f"{emoji} {formatted_message}"
+            self.console.print(formatted_message, style=style if style else None)
 
     def _post_tui_log(self, repo_id: str | None, level: str, message: str) -> None:
         """Safely posts a log message to the TUI if active."""
@@ -145,6 +160,7 @@ class WatchOrchestrator:
         rule_config_obj: RuleConfig = repo_config.rule
         rule_type_str = getattr(rule_config_obj, "type", "unknown_rule_type")
 
+        self._console_message("Rule triggered: Commit due.", repo_id=repo_id, style="green bold", emoji="✅")
         callback_log.info(
             "Action Triggered: Performing actions...",
             rule_type=rule_type_str,
@@ -158,6 +174,7 @@ class WatchOrchestrator:
         try:
             # --- 1. Get Status ---
             repo_state.update_status(RepositoryStatus.PROCESSING)
+            self._console_message("Checking repository status...", repo_id=repo_id, style="blue bold", emoji="🔄")
             self._post_tui_log(repo_id, "DEBUG", "Checking repository status...")
             self._post_tui_state_update()
             # Expecting a RepoStatusResult object now
@@ -171,6 +188,7 @@ class WatchOrchestrator:
             # Check specific flags from the result
             if status_result.is_conflicted:
                 callback_log.warning("Action Skipped: Repository has conflicts.")
+                self._console_message(f"Action failed: Conflicts detected. See logs for details.", repo_id=repo_id, style="red bold", emoji="❌")
                 self._post_tui_log(repo_id, "ERROR", "Action skipped: Conflicts detected!")
                 repo_state.update_status(RepositoryStatus.ERROR, "Conflicts detected") # Stay in ERROR state
                 self._post_tui_state_update()
@@ -178,12 +196,14 @@ class WatchOrchestrator:
 
             if status_result.is_clean and status_result.is_unborn:
                 callback_log.info("Action Skipped: Unborn repository is clean, no commit needed.")
+                self._console_message("Action skipped: Unborn repository clean.", repo_id=repo_id, style="dim", emoji="🚫")
                 self._post_tui_log(repo_id, "INFO", "Action skipped: Unborn repository clean.")
                 repo_state.reset_after_action() # Reset to IDLE
                 self._post_tui_state_update()
                 return
             elif status_result.is_clean:
                  callback_log.info("Action Skipped: Repository is clean, no commit needed.")
+                 self._console_message("Action skipped: Repository clean.", repo_id=repo_id, style="dim", emoji="🚫")
                  self._post_tui_log(repo_id, "INFO", "Action skipped: Repository clean.")
                  repo_state.reset_after_action() # Reset to IDLE
                  self._post_tui_state_update()
@@ -191,17 +211,20 @@ class WatchOrchestrator:
 
             # --- 2. Stage Changes ---
             repo_state.update_status(RepositoryStatus.STAGING)
+            self._console_message("Staging changes...", repo_id=repo_id, style="blue bold", emoji="🔄")
             self._post_tui_log(repo_id, "INFO", "Staging changes...")
             self._post_tui_state_update()
             # Expecting a StageResult object
             stage_result: StageResult = await repo_engine.stage_changes(None, repo_state, engine_config_dict, global_config, working_dir)
             if not stage_result.success:
                 raise SupsrcError(f"Failed to stage changes: {stage_result.message}")
+            self._console_message(f"Staged {len(stage_result.files_staged or [])} file(s).", repo_id=repo_id, style="green bold", emoji="✅")
             callback_log.info("Action: Staging successful.", files_staged=stage_result.files_staged)
             self._post_tui_log(repo_id, "DEBUG", f"Staging successful ({len(stage_result.files_staged or [])} files).")
 
             # --- 3. Perform Commit ---
             repo_state.update_status(RepositoryStatus.COMMITTING)
+            self._console_message("Performing commit...", repo_id=repo_id, style="blue bold", emoji="🔄")
             self._post_tui_log(repo_id, "INFO", "Performing commit...")
             self._post_tui_state_update()
             # Expecting a CommitResult object
@@ -217,6 +240,7 @@ class WatchOrchestrator:
 
             if commit_result.commit_hash is None:
                 # Engine skipped commit (e.g., no changes after staging)
+                self._console_message("Commit skipped: No changes after staging.", repo_id=repo_id, style="dim", emoji="🚫")
                 callback_log.info("Action Skipped: Commit skipped by engine.", reason=commit_result.message)
                 self._post_tui_log(repo_id, "INFO", f"Commit skipped: {commit_result.message}")
                 repo_state.reset_after_action() # Reset to IDLE
@@ -224,11 +248,13 @@ class WatchOrchestrator:
                 return
             else:
                 commit_short_hash = commit_result.commit_hash[:7]
+                self._console_message(f"Commit complete. Hash: {commit_short_hash}", repo_id=repo_id, style="green bold", emoji="✅")
                 callback_log.info("Action: Commit successful", hash=commit_result.commit_hash)
                 self._post_tui_log(repo_id, "SUCCESS", f"Commit successful: {commit_short_hash}")
 
             # --- 4. Perform Push ---
             repo_state.update_status(RepositoryStatus.PUSHING)
+            self._console_message("Pushing changes...", repo_id=repo_id, style="blue bold", emoji="🔄")
             self._post_tui_log(repo_id, "INFO", "Performing push (if enabled)...")
             self._post_tui_state_update()
             # Expecting a PushResult object
@@ -236,14 +262,17 @@ class WatchOrchestrator:
 
             if not push_result.success:
                 # Log warning, but still reset state to IDLE as commit was successful
+                self._console_message(f"Push failed: {push_result.message}. See logs.", repo_id=repo_id, style="red bold", emoji="❌")
                 callback_log.warning("Action: Push failed", reason=push_result.message)
                 self._post_tui_log(repo_id, "WARNING", f"Push failed: {push_result.message}")
                 repo_state.reset_after_action() # Reset even on push fail
             else:
                 if push_result.skipped:
+                    self._console_message("Push skipped (disabled in config).", repo_id=repo_id, style="dim", emoji="🚫")
                     callback_log.info("Action: Push skipped by configuration.")
                     self._post_tui_log(repo_id, "INFO", "Push skipped (disabled in config).")
                 else:
+                    self._console_message("Push successful.", repo_id=repo_id, style="green bold", emoji="✅")
                     callback_log.info("Action: Push successful.")
                     self._post_tui_log(repo_id, "SUCCESS", "Push successful.")
                 repo_state.reset_after_action() # Reset after success/skip
@@ -251,6 +280,7 @@ class WatchOrchestrator:
             self._post_tui_state_update() # Final TUI state update
 
         except Exception as action_exc:
+            self._console_message(f"Action failed: {action_exc}. See logs for details.", repo_id=repo_id, style="red bold", emoji="❌")
             callback_log.error("Action Failed: Error during execution", error=str(action_exc), exc_info=True)
             # Ensure state exists before updating
             if repo_state:
@@ -266,7 +296,7 @@ class WatchOrchestrator:
         """Consumes events from the queue, updates state, manages timers, checks rules."""
         consumer_log = self._log.bind(component="EventConsumer")
         consumer_log.info("Event consumer starting loop.")
-        asyncio.get_running_loop()
+        # asyncio.get_running_loop() # Removed, as it's called later or implicitly. Ensure loop is obtained where needed.
         processed_event_count = 0
 
         while not self.shutdown_event.is_set():
@@ -332,12 +362,14 @@ class WatchOrchestrator:
                         # Record change, check rules, schedule actions/timers
                         repo_state.record_change()
                         event_log = event_log.bind(save_count=repo_state.save_count, status=repo_state.status.name)
+                        self._console_message(f"Change detected: {event.src_path.name}", repo_id=repo_id, style="magenta bold", emoji="✏️")
                         self._post_tui_log(repo_id, "DEBUG", f"Change: {event.event_type} {event.src_path.name}")
                         self._post_tui_state_update()
                         event_log.debug("State updated after recording change")
 
                         rule_config_obj: RuleConfig = repo_config.rule
                         rule_type_str = getattr(rule_config_obj, "type", "unknown_rule_type")
+                        self._console_message(f"Evaluating {rule_type_str} rule", repo_id=repo_id, style="cyan", emoji="🧪")
                         event_log.debug(">>> About to check trigger condition", rule_type=rule_type_str)
 
                         rule_met = check_trigger_condition(repo_state, repo_config)
@@ -353,6 +385,7 @@ class WatchOrchestrator:
                             if isinstance(rule_config_obj, InactivityRuleConfig):
                                 delay = rule_config_obj.period.total_seconds()
                                 event_log.debug("Rescheduling inactivity check", delay_seconds=delay)
+                                self._console_message(f"Waiting for inactivity period ({delay:.0f}s)...", repo_id=repo_id, style="italic yellow", emoji="⏳")
                                 self._post_tui_log(repo_id, "DEBUG", f"Activity detected, rescheduling check in {delay:.1f}s.")
                                 current_loop = asyncio.get_running_loop()
                                 # Ensure the callback lambda creates a task
@@ -393,6 +426,7 @@ class WatchOrchestrator:
             return []
 
         self._safe_log("info", "--- Initializing Repositories ---")
+        # self._console_message("Initializing repositories...", style="dim", emoji="📂") # Moved to run method
         self._post_tui_log(None, "INFO", "Initializing repositories...")
         for repo_id, repo_config in self.config.repositories.items():
             init_log = self._log.bind(repo_id=repo_id)
@@ -454,11 +488,13 @@ class WatchOrchestrator:
                             init_log.warning(summary_msg)
                             self._post_tui_log(repo_id, "WARNING", summary_msg)
                         else:
-                            commit_short_hash = summary.head_commit_hash[:7]
+                            commit_short_hash = summary.head_commit_hash[:7] if summary.head_commit_hash else "N/A"
                             commit_msg_summary = summary.head_commit_message_summary or "No commit message"
                             summary_msg = f"Init: HEAD at {summary.head_ref_name} ({commit_short_hash}) | {commit_msg_summary}"
                             init_log.info(summary_msg)
                             self._post_tui_log(repo_id, "INFO", summary_msg)
+                            # Non-TUI output for successfully initialized repo
+                            self._console_message(f"Watching: {repo_config.path} (Branch: {summary.head_ref_name}, Last Commit: {commit_short_hash})", repo_id=repo_id, style="dim", emoji="📂")
                     else:
                          init_log.warning("Engine lacks get_summary method.")
                          self._post_tui_log(repo_id, "WARNING", "Engine lacks get_summary.")
@@ -474,6 +510,10 @@ class WatchOrchestrator:
         self._post_tui_state_update()
         self._safe_log("info", "--- Repo Initialization Complete ---", count=len(enabled_repo_ids))
         self._post_tui_log(None, "INFO", f"{len(enabled_repo_ids)} repos initialized.")
+
+        if enabled_repo_ids:
+            self._console_message(f"Monitoring active for {len(enabled_repo_ids)} repositories.", style="dim", emoji="✅")
+            self._console_message("All repositories idle. Awaiting changes... (Press Ctrl+C to exit)", style="dim", emoji="🧼")
         return enabled_repo_ids
 
     def _setup_monitoring(self, enabled_repo_ids: list[str]) -> list[str]:
@@ -537,17 +577,21 @@ class WatchOrchestrator:
             try:
                 self.config = load_config(self.config_path)
                 self._safe_log("info", "Config loaded successfully.")
+                self._console_message("Config loaded successfully.", style="dim", emoji="📂")
                 self._post_tui_log(None, "INFO", f"Config loaded: {self.config_path.name}")
             except (ConfigurationError, cattrs.BaseValidationError) as e:
                  self._safe_log("error", "Failed to load/validate config", error=str(e), path=str(self.config_path))
+                 self._console_message(f"Config Error: {e}", style="bold red", emoji="❌")
                  self._post_tui_log(None, "CRITICAL", f"Config Error: {e}")
                  raise
             except Exception as e:
                  self._safe_log("critical", "Unexpected error loading config", error=str(e), exc_info=True)
+                 self._console_message(f"Unexpected Config Error: {e}", style="bold red", emoji="❌")
                  self._post_tui_log(None, "CRITICAL", f"Unexpected Config Error: {e}")
                  raise
 
             # Initialize Repos
+            self._console_message("Initializing repositories...", style="dim", emoji="📂")
             enabled_repo_ids = await self._initialize_repositories()
             if not enabled_repo_ids:
                  self._safe_log("warning", "No enabled/valid repos found. Exiting.")
@@ -585,21 +629,25 @@ class WatchOrchestrator:
             # Wait for Shutdown
             await self.shutdown_event.wait()
             self._safe_log("info", "Shutdown signal received.")
+            self._console_message("Shutdown requested...", style="dim") # emoji="INFO" removed to match UX
             self._post_tui_log(None, "INFO", "Shutdown requested...")
 
         except SupsrcError as e:
             self._safe_log("critical", "Critical supsrc error during watch", error=str(e), exc_info=True)
+            self._console_message(f"Runtime Error: {e}", style="bold red", emoji="❌")
             self._post_tui_log(None, "CRITICAL", f"Runtime Error: {e}")
         except asyncio.CancelledError:
              self._safe_log("warning", "Orchestrator run task cancelled.")
              if not self.shutdown_event.is_set(): self.shutdown_event.set()
         except Exception as e:
             self._safe_log("critical", "Unexpected error in orchestrator run", error=str(e), exc_info=True)
+            self._console_message(f"Unexpected Error: {e}", style="bold red", emoji="❌")
             self._post_tui_log(None, "CRITICAL", f"Unexpected Error: {e}")
             if not self.shutdown_event.is_set(): self.shutdown_event.set()
         finally:
             # Orchestrator Cleanup
             self._safe_log("info", "Orchestrator starting cleanup...")
+            self._console_message("Cleaning up...", style="dim") # emoji="INFO" removed
             self._post_tui_log(None, "INFO", "Cleaning up...")
 
             # 1. Cancel Repo Timers
@@ -623,6 +671,7 @@ class WatchOrchestrator:
                  try:
                      await self.monitor_service.stop()
                      self._safe_log("debug", "Monitoring service stop completed.")
+                     self._console_message("Monitoring stopped.", style="dim") # emoji="INFO" removed
                      self._post_tui_log(None, "INFO", "Monitoring stopped.")
                  except Exception as stop_exc:
                      self._safe_log("error", "Error during monitor service stop", error=str(stop_exc), exc_info=True)
@@ -631,6 +680,7 @@ class WatchOrchestrator:
             else: self._safe_log("debug", "Monitor service was not initialized.")
 
             self._safe_log("info", "Orchestrator finished cleanup.")
+            self._console_message("Cleanup complete.", style="dim")
             self._post_tui_log(None, "INFO", "Cleanup complete.")
 
     def _safe_log(self, level: str, msg: str, **kwargs):
