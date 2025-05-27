@@ -1,12 +1,10 @@
-# file: src/supsrc/cli/watch_cmds.py
-
-# file: src/supsrc/cli/watch_cmds.py
+#
+# supsrc/cli/watch_cmds.py
+#
 
 import asyncio
 import logging
 import signal
-# --- Rich Imports ---
-from rich.console import Console
 import sys
 from contextlib import suppress
 from pathlib import Path
@@ -14,6 +12,11 @@ from pathlib import Path
 import click
 import structlog
 
+# --- Rich Imports ---
+from rich.console import Console
+
+# Import logging utilities
+from supsrc.cli.utils import logging_options, setup_logging_from_context
 from supsrc.runtime.orchestrator import WatchOrchestrator
 
 # Use absolute imports
@@ -62,9 +65,33 @@ async def _handle_signal_async(sig: int):
     "--tui", is_flag=True, default=False,
     help="Run with an interactive Text User Interface (requires 'supsrc[tui]')."
 )
+@logging_options # Add decorator
 @click.pass_context
-def watch_cli(ctx: click.Context, config_path: Path, tui: bool):
+def watch_cli(ctx: click.Context, config_path: Path, tui: bool, **kwargs): # Add **kwargs
     """Monitor configured repositories for changes and trigger actions."""
+    # Setup logging for this command
+    # For TUI mode, this setup will apply unless SupsrcTuiApp overrides it.
+    # The TUI part of watch_cli instantiates SupsrcTuiApp directly.
+    # The separate `tui_cli` command also does this but has its own explicit setup.
+    # We aim for consistency.
+    log_file_in_ctx = ctx.obj.get("LOG_FILE") # Check if global --log-file was set
+    # If watch --tui is used, and a log file is specified (globally or locally for watch),
+    # then default file_only_logs to True for the TUI part.
+    effective_file_only_logs = kwargs.get("file_only_logs")
+    if tui and log_file_in_ctx and effective_file_only_logs is None: # if tui, log_file is set, and local file_only not set
+        effective_file_only_logs = True
+    elif effective_file_only_logs is None: # if not the tui-specific case above, ensure it's False if not set
+        effective_file_only_logs = False
+
+
+    setup_logging_from_context(
+        ctx,
+        local_log_level=kwargs.get("log_level"),
+        local_log_file=kwargs.get("log_file"), # Allows watch to have its own log file
+        local_json_logs=kwargs.get("json_logs"),
+        local_file_only_logs=effective_file_only_logs
+    )
+
     # def _cli_safe_log(level: str, msg: str, **kwargs): # Replaced with direct console prints or structlog
     #     with suppress(Exception): getattr(log, level)(msg, **kwargs)
 

@@ -7,9 +7,15 @@ Base logging setup for the supsrc application using structlog.
 
 import logging
 import sys
+from typing import TYPE_CHECKING, Any, Optional
 
 import structlog
 from structlog.typing import FilteringBoundLogger
+
+if TYPE_CHECKING:
+    from supsrc.tui.app import SupsrcTuiApp # Adjust path if needed
+
+from supsrc.tui.logging_handler import TextualLogHandler
 
 # Use absolute imports for processors
 from supsrc.telemetry.logger.processors import (
@@ -28,9 +34,17 @@ LOG_EMOJIS = {
     "success": "🎉", "general": "➡️",
 }
 
+# --- Module level TUI state ---
+_is_tui_active: bool = False
 # --- Core structlog Setup Function ---
 
-def setup_logging(level: int = logging.INFO, json_logs: bool = False, log_file: str | None = None) -> None:
+def setup_logging(
+    level: int = logging.INFO,
+    json_logs: bool = False,
+    log_file: str | None = None,
+    file_only: bool = False,  # New parameter for file-only logging
+    tui_app_instance: Optional["SupsrcTuiApp"] = None
+) -> None:
     """
     Configures structlog for the entire supsrc application.
 
@@ -93,13 +107,34 @@ def setup_logging(level: int = logging.INFO, json_logs: bool = False, log_file: 
     )
 
     # Configure the standard library root logger handler (for console)
-    handler = logging.StreamHandler(sys.stdout) # Explicitly use stdout
-    handler.setFormatter(formatter)
-
     root_logger = logging.getLogger() # Get stdlib root logger
     root_logger.handlers.clear()      # Clear existing handlers
-    root_logger.addHandler(handler)
-    root_logger.setLevel(level)     # Set level on the root logger
+    root_logger.setLevel(level)     # Set level on the root logger first
+
+    # Log initial message using a structlog logger AFTER configuration
+    # This needs to be defined early so it can be used by subsequent setup steps.
+    slog = structlog.get_logger(BASE_LOGGER_NAME)
+
+    # Console Handler (conditionally added based on TUI status and file_only)
+    if not _is_tui_active and not file_only:
+        # Standard console handler for non-TUI, non-file-only mode
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(formatter)
+        root_logger.addHandler(console_handler)
+        slog.debug("Standard StreamHandler added for console output.")
+    elif _is_tui_active and not file_only:
+        # TUI is active, TextualLogHandler is responsible for TUI output.
+        # Standard console output via StreamHandler is suppressed.
+        slog.debug("TUI active: Standard StreamHandler to sys.stdout is suppressed even if file_only is false.")
+    elif file_only and not log_file:
+        # This warning remains valid
+        # Using direct print as slog might not be fully configured for console output here if file_only is true
+        print(f"WARNING: Logging configured with file_only=True but no log_file was provided. No log output will be generated.", file=sys.stderr)
+    elif file_only and log_file:
+        # This info remains valid
+        # Using slog, as it will go to the file if file_only=True and log_file is set.
+        slog.info(f"Console logging via StreamHandler suppressed (file_only=True). Logs are being written to '{log_file}'.")
+
 
     # Configure File Handler (Optional, always JSON for machine readability)
     if log_file:
@@ -108,26 +143,38 @@ def setup_logging(level: int = logging.INFO, json_logs: bool = False, log_file: 
             # Use a separate formatter for the file, forcing JSON output
             file_formatter = structlog.stdlib.ProcessorFormatter(
                 processor=structlog.processors.JSONRenderer(sort_keys=True),
-                # foreign_pre_chain=[structlog.stdlib.add_log_level], # Keep consistent if needed
             )
             file_handler.setFormatter(file_formatter)
             file_handler.setLevel(level) # Set level for file handler too
             root_logger.addHandler(file_handler) # Add file handler to root
-            # Log using structlog now that basic config is done
-            structlog.get_logger(BASE_LOGGER_NAME).info(f"File logging enabled to '{log_file}'")
+            slog.info(f"File logging enabled to '{log_file}'") # Use slog
         except Exception as e:
-             # Use standard logging as a fallback during setup failure
+            # Use standard logging here if slog itself might be part of the problem with file handler
             logging.getLogger(BASE_LOGGER_NAME).error(f"Failed to setup file logging to '{log_file}': {e}", exc_info=True)
 
+    # Add TextualLogHandler if TUI mode is active
+    if _is_tui_active and tui_app_instance:
+        slog.debug("TUI mode active, attempting to add TextualLogHandler.")
 
-    # Log initial message using a structlog logger AFTER configuration
-    slog = structlog.get_logger(BASE_LOGGER_NAME)
+        textual_handler = TextualLogHandler(app=tui_app_instance)
+        textual_handler.setLevel(level) # Use the same overall log level
+        textual_handler.setFormatter(formatter) # Use the same formatter as the console handler
+
+        root_logger.addHandler(textual_handler)
+        slog.info("TextualLogHandler added to root logger for TUI.")
+    elif _is_tui_active and not tui_app_instance:
+        slog.warning("TUI mode is active but no TUI app instance was provided to logging setup.")
+
+    # Final log message about initialization status
     slog.info(
-        "structlog logging initialized",
-        # Removed padded_logger from the initial log message context
+        "structlog logging initialization complete",
         log_level=log_level_name,
-        json_console=json_logs,
-        log_file=log_file or "None"
+        json_console_format=json_logs,
+        console_output_enabled=(not _is_tui_active and not file_only),
+        log_file=log_file or "None",
+        file_only_requested=file_only,
+        tui_mode_active=_is_tui_active,
+        tui_handler_added=(_is_tui_active and tui_app_instance is not None)
     )
 
 

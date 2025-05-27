@@ -14,6 +14,8 @@ import structlog
 from supsrc.config import load_config
 from supsrc.exceptions import ConfigurationError
 from supsrc.telemetry import StructLogger  # Import type hint
+# Import logging utilities
+from supsrc.cli.utils import logging_options, setup_logging_from_context
 
 # Import rich if available for pretty printing
 try:
@@ -41,9 +43,19 @@ def config_cli():
     help="Path to the supsrc configuration file (env var SUPSRC_CONF).",
     show_envvar=True, # <<< Show env var in help message
 )
+@logging_options # Add decorator
 @click.pass_context # Get context from the parent group (for log level etc)
-def show_config(ctx: click.Context, config_path: Path):
+def show_config(ctx: click.Context, config_path: Path, **kwargs): # Add **kwargs to accept options
     """Load, validate, and display the configuration."""
+    # Setup logging for this command
+    setup_logging_from_context(
+        ctx,
+        local_log_level=kwargs.get("log_level"),
+        local_log_file=kwargs.get("log_file"),
+        local_json_logs=kwargs.get("json_logs"),
+        local_file_only_logs=kwargs.get("file_only_logs")
+        # default_log_level can be omitted to use the one from utils.py or set by main cli
+    )
     log.info("Executing 'config show' command", config_path=str(config_path))
 
     try:

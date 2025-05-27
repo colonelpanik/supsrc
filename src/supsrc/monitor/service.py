@@ -1,7 +1,6 @@
-# file: src/supsrc/monitor/service.py
-"""
-Manages the watchdog observer thread and repository event handlers.
-"""
+#
+# supsrc/monitor/service.py
+#
 
 import asyncio
 
@@ -108,13 +107,21 @@ class MonitoringService:
             log.debug("Calling observer.stop()")
             self._observer.stop()
             log.debug("observer.stop() returned")
-            self._logger.debug("Waiting for observer thread to join via asyncio.to_thread...")
+            self._logger.debug("Waiting for observer thread to join via asyncio.to_thread with overall timeout...")
             try:
-                await asyncio.to_thread(self._observer.join, timeout=5.0)
+                # Wrap the asyncio.to_thread call with asyncio.wait_for
+                await asyncio.wait_for(
+                    asyncio.to_thread(self._observer.join, timeout=5.0),
+                    timeout=7.0  # Outer timeout for the to_thread operation itself
+                )
                 join_success = True
-                log.debug("asyncio.to_thread(observer.join) finished successfully")
+                log.debug("asyncio.to_thread(observer.join) completed within outer timeout.")
+            except asyncio.TimeoutError:
+                log.error("Outer timeout (7s) reached while waiting for observer.join via asyncio.to_thread.", exc_info=True)
+                # join_success remains False
             except Exception as join_exc:
-                log.error("Exception during observer join", error=str(join_exc), exc_info=True)
+                log.error("Exception during observer join or outer wait_for", error=str(join_exc), exc_info=True)
+                # join_success remains False
             if self._observer.is_alive():
                  self._logger.warning("Observer thread did not stop within timeout or failed join.")
             else:
@@ -141,3 +148,4 @@ class MonitoringService:
         return self._is_running and observer_alive
 
 # 🔼⚙️
+

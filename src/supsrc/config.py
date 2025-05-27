@@ -45,6 +45,8 @@ except ImportError:
 # --- Centralized Logger ---
 log: structlog.stdlib.BoundLogger = structlog.get_logger("cfg")
 
+DEFAULT_LOG_LEVEL = "WARNING"
+
 # --- Rich Markup Styles ---
 PATH_STYLE = "bold cyan"
 VALUE_STYLE = "bold magenta"
@@ -191,9 +193,9 @@ class RepositoryConfig:
 @define(frozen=True, slots=True)
 class GlobalConfig:
     """Global default settings for supsrc."""
-    log_level: str = field(default="INFO", validator=_validate_log_level)
+    log_level: str = field(default=DEFAULT_LOG_LEVEL, validator=_validate_log_level)
     default_commit_message: str = field(
-        default="supsrc auto-commit: {{timestamp}}"
+        default="🔼⚙️ auto-commit [skip ci]"
     )
     default_auto_push: bool = field(default=True)
 

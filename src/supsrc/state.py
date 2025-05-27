@@ -15,7 +15,6 @@ from attrs import field, mutable
 # Logger specific to state management
 log: structlog.stdlib.BoundLogger = structlog.get_logger("state")
 
-
 class RepositoryStatus(Enum):
     """Enumeration of possible operational states for a monitored repository."""
 
@@ -28,6 +27,22 @@ class RepositoryStatus(Enum):
     PUSHING = auto()  # Git push operation in progress.
     ERROR = auto()  # An error occurred, requires attention or clears on next success.
 
+# Mapping of RepositoryStatus to display emojis for TUI
+# Note: Some TUI statuses like 'Committed', 'Skipped', 'Evaluating', 'Waiting'
+# might be derived in the TUI or Orchestrator based on a combination of
+# RepositoryStatus and other state fields (e.g., error_message, last_commit_hash).
+STATUS_EMOJI_MAP = {
+    RepositoryStatus.IDLE: "🧼",
+    RepositoryStatus.CHANGED: "✏️",
+    RepositoryStatus.TRIGGERED: "🎯", # Rule met, action pending
+    RepositoryStatus.PROCESSING: "🔄", # General processing (e.g. status check)
+    RepositoryStatus.STAGING: "📦",
+    RepositoryStatus.COMMITTING: "💾",
+    RepositoryStatus.PUSHING: "🅿️",
+    RepositoryStatus.ERROR: "❌",
+    # Specific states like 'Evaluating' or 'Waiting' will be set directly by Orchestrator
+    # as they are not direct RepositoryStatus enum members.
+}
 
 @mutable(slots=True)
 class RepositoryState:
@@ -47,8 +62,21 @@ class RepositoryState:
     # This allows cancellation if new changes arrive before the timer fires.
     inactivity_timer_handle: asyncio.TimerHandle | None = field(default=None)
 
+    # New fields for TUI
+    display_status_emoji: str = field(default="❓") # Placeholder emoji
+    active_rule_description: str | None = field(default=None) # May become redundant with new fields
+    last_commit_short_hash: str | None = field(default=None)
+    last_commit_message_summary: str | None = field(default=None)
+
+    # New fields for advanced TUI (rule emojis, dynamic indicators, progress bars)
+    rule_emoji: str | None = field(default=None)
+    rule_dynamic_indicator: str | None = field(default=None)
+    action_description: str | None = field(default=None)
+    action_progress_total: int | None = field(default=None)
+    action_progress_completed: int | None = field(default=None)
+
     # Consider adding:
-    # last_commit_hash: Optional[str] = field(default=None)
+    # last_commit_hash: Optional[str] = field(default=None) # This is now last_commit_short_hash
     # last_push_time: Optional[datetime] = field(default=None)
     # last_error_time: Optional[datetime] = field(default=None)
 
@@ -69,6 +97,10 @@ class RepositoryState:
             return
 
         self.status = new_status
+        # Update emoji based on the new status.
+        # More specific emojis (like '🧪 Evaluating', '😴 Waiting') can be set directly
+        # by the Orchestrator if needed for transient states not directly in RepositoryStatus.
+        self.display_status_emoji = STATUS_EMOJI_MAP.get(new_status, "❓")
         log_func = log.debug # Default log level for status changes
 
         if new_status == RepositoryStatus.ERROR:
@@ -121,9 +153,20 @@ class RepositoryState:
         self.save_count = 0
         # Keep last_change_time as the time of the action, or clear it?
         # Clearing might be simpler for inactivity logic.
-        self.last_change_time = None
+        self.last_change_time = None # Cleared to allow inactivity rule to reset properly
+        self.active_rule_description = None # Clear specific action/wait messages
+        # self.error_message is cleared by update_status if moving out of ERROR
+
+        # Reset new TUI fields
+        self.rule_emoji = None # Or reset to default based on config for next cycle
+        self.rule_dynamic_indicator = None # Or reset to default
+        self.action_description = None
+        self.action_progress_total = None
+        self.action_progress_completed = None
+
         self.cancel_inactivity_timer() # Ensure timer is gone
         self.update_status(RepositoryStatus.IDLE) # Back to idle state
+        # Note: last_commit_short_hash and last_commit_message_summary are intentionally persisted
 
 
     def set_inactivity_timer(self, handle: asyncio.TimerHandle) -> None:
