@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, Optional, TypeAlias, cast
 
 import attrs
-import cattrs  # Needed for config validation exceptions
 import structlog
 from rich.console import Console
 
@@ -19,15 +18,11 @@ from supsrc.config import (
     SupsrcConfig,
     load_config,
 )
-# --- BEGIN PHASE 3 IMPORTS ---
-from supsrc.llm import get_llm_provider
-from supsrc.llm.protocols import LlmProvider
-from supsrc.testing import LlmTestAnalyzer, TestRunner, get_test_runner
-# --- END PHASE 3 IMPORTS ---
 
 # --- Specific Engine Import (replace with plugin loading later) ---
 from supsrc.engines.git import GitEngine, GitRepoSummary  # Import summary class too
-from supsrc.exceptions import ConfigurationError, MonitoringSetupError, SupsrcError
+from supsrc.exceptions import MonitoringSetupError, SupsrcError
+from supsrc.llm import get_llm_provider
 from supsrc.monitor import MonitoredEvent, MonitoringService
 
 # --- Import concrete result types and base protocols ---
@@ -43,6 +38,7 @@ from supsrc.state import RepositoryState, RepositoryStatus
 
 # --- Supsrc Imports ---
 from supsrc.telemetry import StructLogger
+from supsrc.testing import LlmTestAnalyzer, get_test_runner
 
 # --- TUI Integration Imports (Conditional) ---
 try:
@@ -103,9 +99,7 @@ class WatchOrchestrator:
         self.event_queue: asyncio.Queue[MonitoredEvent] = asyncio.Queue()
         self.repo_states: RepositoryStatesMap = {}
         self.repo_engines: dict[str, RepositoryEngine] = {}
-        # --- BEGIN PHASE 3 ATTRIBUTES ---
         self.repo_test_analyzers: dict[str, LlmTestAnalyzer] = {}
-        # --- END PHASE 3 ATTRIBUTES ---
         self._running_tasks: set[asyncio.Task[Any]] = set()
         self._log = log.bind(orchestrator_id=id(self))
         self._is_tui_active = bool(self.app) # Flag for easier checking
@@ -199,7 +193,7 @@ class WatchOrchestrator:
 
             if status_result.is_conflicted:
                 raise SupsrcError("Action Skipped: Repository has conflicts.")
-            
+
             if status_result.is_clean:
                 callback_log.info("Action Skipped: Repository is clean, no action needed.")
                 repo_state.action_description = "Skipped (clean)"
@@ -217,7 +211,6 @@ class WatchOrchestrator:
             if not stage_result.success:
                 raise SupsrcError(f"Failed to stage changes: {stage_result.message}")
 
-            # --- BEGIN PHASE 3 WORKFLOW SPLIT ---
             llm_analyzer = self.repo_test_analyzers.get(repo_id)
             if llm_analyzer:
                 # --- LLM-driven Test & Commit Workflow ---
@@ -246,7 +239,7 @@ class WatchOrchestrator:
                         raise SupsrcError(f"Commit failed after successful test run: {commit_result.message}")
 
                     repo_state.last_commit_short_hash = commit_result.commit_hash[:7] if commit_result.commit_hash else "N/A"
-                    repo_state.last_commit_message_summary = analysis_result.suggestion.split('\n')[0]
+                    repo_state.last_commit_message_summary = analysis_result.suggestion.split("\n")[0]
                     self._console_message(f"Commit successful: {repo_state.last_commit_short_hash}", repo_id=repo_id, style="green bold", emoji="✅")
                 else:
                     callback_log.error("LLM analysis determined changes are NOT safe to commit.", diagnosis=analysis_result.suggestion)
@@ -270,8 +263,6 @@ class WatchOrchestrator:
                     self._console_message(f"Commit complete. Hash: {repo_state.last_commit_short_hash}", repo_id=repo_id, style="green bold", emoji="✅")
                 else:
                     self._console_message("Commit skipped: No changes after staging.", repo_id=repo_id, style="dim", emoji="🚫")
-            
-            # --- END PHASE 3 WORKFLOW SPLIT ---
 
             # --- Push Operation (Common to both successful workflows) ---
             repo_state.update_status(RepositoryStatus.PUSHING)
@@ -417,7 +408,6 @@ class WatchOrchestrator:
                 self.repo_engines[repo_id] = engine_instance
                 init_log.debug("Engine loaded", engine_class=type(engine_instance).__name__)
 
-                # --- BEGIN PHASE 3 INITIALIZATION ---
                 # Setup LLM Test Analyzer if configured
                 if repo_config.llm and repo_config.testing:
                     init_log.info("LLM and testing config found, setting up analyzer.")
@@ -431,7 +421,6 @@ class WatchOrchestrator:
                         init_log.error("Failed to initialize LlmTestAnalyzer", error=str(analyzer_exc), exc_info=True)
                         repo_state.update_status(RepositoryStatus.ERROR, f"LLM/Test setup failed: {analyzer_exc}")
                         continue # Skip to next repo
-                # --- END PHASE 3 INITIALIZATION ---
 
                 # Get Initial Summary
                 if hasattr(engine_instance, "get_summary"):
@@ -440,9 +429,9 @@ class WatchOrchestrator:
                         repo_state.last_commit_short_hash = summary.head_commit_hash[:7]
                     repo_state.last_commit_message_summary = summary.head_commit_message_summary
                     self._console_message(f"Watching: {repo_config.path} (Branch: {summary.head_ref_name})", repo_id=repo_id, style="dim", emoji="📂")
-                
+
                 enabled_repo_ids.append(repo_id)
-                
+
             except Exception as e:
                 init_log.error("Failed to initialize repository", error=str(e), exc_info=True)
                 if repo_id in self.repo_states:
@@ -493,10 +482,10 @@ class WatchOrchestrator:
             consumer_task = asyncio.create_task(self._consume_events(), name="EventConsumer")
             self._running_tasks.add(consumer_task)
             consumer_task.add_done_callback(self._running_tasks.discard)
-            
+
             self._safe_log("info", "Orchestrator running. Waiting for shutdown signal.")
             await self.shutdown_event.wait()
-        
+
         except Exception as e:
             self._safe_log("critical", "Orchestrator run failed", error=str(e), exc_info=True)
             self.shutdown_event.set()
@@ -506,17 +495,15 @@ class WatchOrchestrator:
             if tasks_to_cancel:
                 for task in tasks_to_cancel: task.cancel()
                 await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
-            
+
             if self.monitor_service and self.monitor_service.is_running:
                 await self.monitor_service.stop()
             self._safe_log("info", "Orchestrator finished cleanup.")
 
     def _safe_log(self, level: str, msg: str, **kwargs):
         """Helper to suppress logging errors during final shutdown."""
-        try:
+        with suppress(Exception):
             getattr(self._log, level)(msg, **kwargs)
-        except Exception:
-            pass
 
     async def get_repository_details(self, repo_id: str) -> dict[str, Any]:
         """Retrieves detailed information for a given repository."""

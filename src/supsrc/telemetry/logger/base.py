@@ -7,15 +7,13 @@ Base logging setup for the supsrc application using structlog.
 
 import logging
 import sys
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 import structlog
 from structlog.typing import FilteringBoundLogger
 
 if TYPE_CHECKING:
-    from supsrc.tui.app import SupsrcTuiApp # Adjust path if needed
-
-from supsrc.tui.logging_handler import TextualLogHandler
+    from supsrc.tui.app import SupsrcTuiApp  # Adjust path if needed
 
 # Use absolute imports for processors
 from supsrc.telemetry.logger.processors import (
@@ -23,6 +21,7 @@ from supsrc.telemetry.logger.processors import (
     # add_padded_logger_processor, # Removed
     remove_extra_keys_processor,
 )
+from supsrc.tui.logging_handler import TextualLogHandler
 
 # --- Constants ---
 BASE_LOGGER_NAME = "supsrc" # Used for filtering/formatting
@@ -131,7 +130,7 @@ def setup_logging(
     elif file_only and not log_file:
         # This warning remains valid
         # Using direct print as slog might not be fully configured for console output here if file_only is true
-        print(f"WARNING: Logging configured with file_only=True but no log_file was provided. No log output will be generated.", file=sys.stderr)
+        print("WARNING: Logging configured with file_only=True but no log_file was provided. No log output will be generated.", file=sys.stderr)
     elif file_only and log_file:
         # This info remains valid
         # Using slog, as it will go to the file if file_only=True and log_file is set.

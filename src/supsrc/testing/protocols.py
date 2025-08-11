@@ -7,7 +7,6 @@ Defines protocols and data structures for test execution.
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-import attrs
 from attrs import define
 
 

@@ -10,7 +10,7 @@ from pathlib import Path
 import structlog
 
 from supsrc.exceptions import SupsrcError
-from supsrc.testing.protocols import TestRunResult, TestRunner
+from supsrc.testing.protocols import TestRunner, TestRunResult
 
 log = structlog.get_logger("testing.runner")
 
@@ -69,7 +69,7 @@ class SubprocessTestRunner(TestRunner):
 
         except FileNotFoundError:
             runner_log.error("Test command not found", command_executable=command[0])
-            raise SupsrcError(f"Test command not found: '{command[0]}'. Is it installed and in the system's PATH?")
+            raise SupsrcError from FileNotFoundError(f"Test command not found: '{command[0]}'. Is it installed and in the system's PATH?")
         except Exception as e:
             runner_log.exception("An unexpected error occurred while running tests")
             raise SupsrcError(f"An unexpected error occurred during test execution: {e}") from e
