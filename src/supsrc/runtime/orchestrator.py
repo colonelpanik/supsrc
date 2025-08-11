@@ -291,6 +291,7 @@ class WatchOrchestrator:
                  repo_state.update_status(RepositoryStatus.ERROR, error_message)
                  self._post_tui_state_update()
 
+
     async def _consume_events(self) -> None:
         """Consumes events from the queue, updates state, manages timers, checks rules."""
         consumer_log = self._log.bind(component="EventConsumer")
@@ -313,13 +314,12 @@ class WatchOrchestrator:
                     consumer_log.info("Consumer detected shutdown while waiting.")
                     if get_task in pending:
                         get_task.cancel()
-                    break # Exit the while loop
+                    break
 
                 if get_task in done:
                     event = get_task.result()
                     repo_id = event.repo_id
                 else:
-                    # This case should not be hit in normal operation but is a safe fallback.
                     continue
 
                 if shutdown_wait_task in pending:
@@ -327,7 +327,6 @@ class WatchOrchestrator:
 
                 processed_event_count += 1
                 event_log = consumer_log.bind(repo_id=repo_id, event_type=event.event_type, src_path=str(event.src_path))
-                event_log.debug("Processing received event")
 
                 repo_state = self.repo_states.get(repo_id)
                 repo_config = self.config.repositories.get(repo_id) if self.config else None
@@ -336,6 +335,18 @@ class WatchOrchestrator:
                     event_log.warning("Ignoring event for unknown/disabled/unconfigured repository.")
                     continue
 
+                # --- BEGIN FIX: State-Based Action Guard ---
+                # If an action is already in progress for this repo, ignore subsequent events
+                # until it returns to an IDLE or CHANGED state. This prevents feedback loops.
+                if repo_state.status not in (RepositoryStatus.IDLE, RepositoryStatus.CHANGED):
+                    event_log.debug(
+                        "Ignoring event: an action is already in progress for this repository.",
+                        current_status=repo_state.status.name
+                    )
+                    continue
+                # --- END FIX ---
+
+                event_log.debug("Processing received event")
                 repo_state.record_change()
                 self._console_message(f"Change detected: {event.src_path.name}", repo_id=repo_id, style="magenta bold", emoji="✏️")
 
@@ -361,14 +372,11 @@ class WatchOrchestrator:
 
             except asyncio.CancelledError:
                 consumer_log.info("Consumer task processing cancelled. Cleaning up internal tasks...")
-                # Cancel internal tasks to prevent them from being orphaned
                 if get_task and not get_task.done():
                     get_task.cancel()
                 if shutdown_wait_task and not shutdown_wait_task.done():
                     shutdown_wait_task.cancel()
-                # Awaiting them is not strictly necessary here as the outer loop will handle it,
-                # but it can be done with suppress for robustness.
-                break # Exit the loop after cancellation
+                break
 
             except Exception as e:
                 current_repo_id = repo_id if repo_id else "UNKNOWN"
@@ -379,6 +387,7 @@ class WatchOrchestrator:
                         self.event_queue.task_done()
 
         consumer_log.info(f"Event consumer finished after processing {processed_event_count} events.")
+
 
     async def _initialize_repositories(self) -> list[str]:
         """Initializes states, loads engines, and other components."""
