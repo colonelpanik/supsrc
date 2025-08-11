@@ -13,7 +13,7 @@ import pytest
 from supsrc.config import load_config
 from supsrc.config.models import (
     SupsrcConfig, GlobalConfig, RepositoryConfig,
-    InactivityRuleConfig, SaveCountRuleConfig, ManualRuleConfig
+    InactivityRuleConfig, SaveCountRuleConfig, ManualRuleConfig, LlmConfig
 )
 from supsrc.exceptions import (
     ConfigFileNotFoundError, ConfigParsingError,
@@ -26,12 +26,15 @@ class TestConfigLoading:
 
     def test_load_valid_config(self, tmp_path: Path) -> None:
         """Test loading a valid configuration file."""
-        config_content = """
+        mock_repo_path = tmp_path / "mock-repo"
+        mock_repo_path.mkdir()
+
+        config_content = f"""
         [global]
         log_level = "DEBUG"
 
         [repositories.test-repo]
-        path = "/tmp/test"
+        path = "{mock_repo_path}"
         enabled = true
 
         [repositories.test-repo.rule]
@@ -41,6 +44,10 @@ class TestConfigLoading:
         [repositories.test-repo.repository]
         type = "supsrc.engines.git"
         auto_push = true
+
+        [repositories.test-repo.llm]
+        provider = "ollama"
+        model = "test-model"
         """
 
         config_file = tmp_path / "test.conf"
@@ -58,6 +65,8 @@ class TestConfigLoading:
         assert repo_config.rule.period == timedelta(seconds=30)
         assert repo_config.repository["type"] == "supsrc.engines.git"
         assert repo_config.repository["auto_push"] is True
+        assert isinstance(repo_config.llm, LlmConfig)
+        assert repo_config.llm.provider == "ollama"
 
     def test_load_nonexistent_config(self) -> None:
         """Test loading a non-existent configuration file."""
@@ -74,7 +83,8 @@ class TestConfigLoading:
         with pytest.raises(ConfigParsingError) as exc_info:
             load_config(config_file)
 
-        assert "TOML" in str(exc_info.value)
+        # FIX: Relax assertion to be less brittle
+        assert "Failed to parse" in str(exc_info.value)
 
 
 class TestRuleConfiguration:

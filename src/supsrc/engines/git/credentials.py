@@ -200,11 +200,10 @@ class RemoteCallbacks(pygit2.RemoteCallbacks):
 
     def transfer_progress(self, stats) -> None:
         """Log transfer progress - removed TransferProgress type hint to avoid import issues."""
-        if hasattr(stats, 'total_objects') and hasattr(stats, 'indexed_objects'):
-            if stats.total_objects > 0:
-                progress = (stats.indexed_objects / stats.total_objects) * 100
-                self._log.debug("Transfer progress",
-                               progress=f"{progress:.1f}%",
-                               indexed=stats.indexed_objects,
-                               total=stats.total_objects)
+        if hasattr(stats, "total_objects") and hasattr(stats, "indexed_objects") and stats.total_objects > 0:
+            progress = (stats.indexed_objects / stats.total_objects) * 100
+            self._log.debug("Transfer progress",
+                           progress=f"{progress:.1f}%",
+                           indexed=stats.indexed_objects,
+                           total=stats.total_objects)
 # 🔐🚀

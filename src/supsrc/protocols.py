@@ -134,4 +134,9 @@ class RepositoryEngine(Protocol):
         log.warning("get_summary called on base protocol, implementation needed.")
         return None
 
+    async def get_staged_diff(self, working_dir: Path) -> str:
+        """Get the diff of staged changes."""
+        log.warning("get_staged_diff called on base protocol, implementation needed.")
+        return ""
+
 # 🔼⚙️

@@ -36,9 +36,8 @@ class ConfigParsingError(ConfigurationError):
         self.details = details # Store original parsing exception if available
         full_message = f"Failed to parse configuration file: {message}"
         super().__init__(full_message, path=path)
-        if details:
-            if hasattr(self, "add_note"):
-                 self.add_note(f"Original parsing error: {type(details).__name__}: {details}")
+        if details and hasattr(self, "add_note"):
+             self.add_note(f"Original parsing error: {type(details).__name__}: {details}")
 
 class ConfigValidationError(ConfigurationError):
     """
@@ -49,9 +48,8 @@ class ConfigValidationError(ConfigurationError):
         self.details = details # Store original validation exception if available
         full_message = f"Configuration validation failed: {message}"
         super().__init__(full_message, path=path)
-        if details:
-             if hasattr(self, "add_note"):
-                 self.add_note(f"Original validation error: {type(details).__name__}: {details}")
+        if details and hasattr(self, "add_note"):
+            self.add_note(f"Original validation error: {type(details).__name__}: {details}")
 
 
 class PathValidationError(ConfigValidationError):
@@ -67,8 +65,6 @@ class DurationValidationError(ConfigValidationError):
         self.duration_str = duration_str
         full_message = f"{message}: '{duration_str}'"
         super().__init__(full_message, path=config_path)
-
-# --- Monitoring Related Exceptions (NEW for Phase 2) ---
 
 class MonitoringError(SupsrcError):
     """Base class for errors related to file system monitoring."""

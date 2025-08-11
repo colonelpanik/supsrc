@@ -53,10 +53,26 @@ class ManualRuleConfig: # Renamed from ManualTrigger
     """Configuration for the manual rule."""
     type: str = field(default="supsrc.rules.manual", kw_only=True)
 
-
 # Type alias for the union of rule configuration types
 # cattrs will use this union to structure the 'rule' section based on 'type' using the registered hook
 RuleConfig: TypeAlias = InactivityRuleConfig | SaveCountRuleConfig | ManualRuleConfig
+
+# --- LLM Configuration Model ---
+@define(frozen=True, slots=True)
+class LlmConfig:
+    """Configuration for an LLM provider."""
+    provider: str = field()  # e.g., "ollama", "openai", "gemini"
+    model: str = field()
+    api_key: str | None = field(default=None) # For providers that need it
+    base_url: str | None = field(default=None) # For self-hosted/proxy
+    # Additional provider-specific options can be stored here
+    options: Mapping[str, Any] = field(factory=dict)
+
+@define(frozen=True, slots=True)
+class TestingConfig:
+    """Configuration for running tests."""
+    runner: str = field(default="pytest") # e.g., "pytest", "subprocess"
+    command: list[str] | None = field(default=None) # Optional override for the test command
 
 # --- Repository and Global Config Models ---
 
@@ -74,6 +90,11 @@ class RepositoryConfig:
 
     # Optional fields after
     enabled: bool = field(default=True)
+    # Optional LLM configuration for this specific repository
+    llm: LlmConfig | None = field(default=None)
+    # Optional Testing configuration for this repository
+    testing: TestingConfig | None = field(default=None)
+
 
     # Internal state flag
     _path_valid: bool = field(default=True, repr=False, init=False)
@@ -83,7 +104,8 @@ class RepositoryConfig:
 class GlobalConfig:
     """Global default settings for supsrc."""
     log_level: str = field(default="INFO", validator=_validate_log_level)
-    # Defaults removed - handled by env vars or engine defaults
+    # Optional global LLM configuration 
+    llm: LlmConfig | None = field(default=None)
 
     @property
     def numeric_log_level(self) -> int:

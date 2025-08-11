@@ -29,14 +29,14 @@ async def perform_git_push(
 ) -> PushResult:
     """
     Enhanced Git push with comprehensive authentication and error handling.
-    
+
     Args:
         repo: Initialized pygit2.Repository object
         working_dir: Repository's working directory path
         remote_name: Name of the remote to push to
         branch_name: Name of the local branch to push
         config: Engine-specific configuration dictionary
-        
+
     Returns:
         PushResult indicating success or failure
     """
@@ -52,7 +52,7 @@ async def perform_git_push(
         try:
             remote = await run_pygit2_async(repo.remotes.__getitem__, remote_name)
         except (KeyError, IndexError):
-            raise GitRemoteError(
+            raise GitRemoteError from None(
                 f"Remote '{remote_name}' not found.",
                 repo_path=str(working_dir)
             )
@@ -72,7 +72,7 @@ async def perform_git_push(
         try:
             await run_pygit2_async(repo.references.get, local_ref)
         except KeyError:
-            raise GitPushError(
+            raise GitPushError from KeyError(
                 f"Local branch '{branch_name}' (ref: {local_ref}) not found.",
                 repo_path=str(working_dir)
             )
