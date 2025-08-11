@@ -58,6 +58,18 @@ class ManualRuleConfig: # Renamed from ManualTrigger
 # cattrs will use this union to structure the 'rule' section based on 'type' using the registered hook
 RuleConfig: TypeAlias = InactivityRuleConfig | SaveCountRuleConfig | ManualRuleConfig
 
+# --- LLM Configuration Model (NEW) ---
+@define(frozen=True, slots=True)
+class LlmConfig:
+    """Configuration for an LLM provider."""
+    provider: str = field()  # e.g., "ollama", "openai", "gemini"
+    model: str = field()
+    api_key: str | None = field(default=None) # For providers that need it
+    base_url: str | None = field(default=None) # For self-hosted/proxy
+    # Additional provider-specific options can be stored here
+    options: Mapping[str, Any] = field(factory=dict)
+
+
 # --- Repository and Global Config Models ---
 
 @mutable(slots=True)
@@ -74,6 +86,9 @@ class RepositoryConfig:
 
     # Optional fields after
     enabled: bool = field(default=True)
+    # Optional LLM configuration for this specific repository (NEW)
+    llm: LlmConfig | None = field(default=None)
+
 
     # Internal state flag
     _path_valid: bool = field(default=True, repr=False, init=False)
@@ -83,7 +98,9 @@ class RepositoryConfig:
 class GlobalConfig:
     """Global default settings for supsrc."""
     log_level: str = field(default="INFO", validator=_validate_log_level)
-    # Defaults removed - handled by env vars or engine defaults
+    # Optional global LLM configuration (NEW)
+    # FIX: Removed incorrect metadata from this nested field.
+    llm: LlmConfig | None = field(default=None)
 
     @property
     def numeric_log_level(self) -> int:

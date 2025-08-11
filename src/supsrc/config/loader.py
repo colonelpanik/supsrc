@@ -162,11 +162,15 @@ def load_config(config_path: Path) -> SupsrcConfig:
 
     try:
         log.debug("Reading TOML...")
-        with open(config_path, "rb") as f: toml_data = tomllib.load(f)
+        with open(config_path, "rb") as f:
+            toml_data = tomllib.load(f)
         log.debug("TOML read OK.")
     except tomllib.TOMLDecodeError as e:
         msg = "Invalid TOML syntax"; log.error(msg, path=str(config_path), error=str(e), exc_info=True, emoji_key="fail")
         raise ConfigParsingError(str(e), path=str(config_path), details=e) from e
+
+    if "global" in toml_data:
+        toml_data["global_config"] = toml_data.pop("global")
 
     try:
         log.debug("Structuring TOML data...")

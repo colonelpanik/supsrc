@@ -4,7 +4,7 @@
 """
 Enhanced pytest configuration and fixtures for comprehensive testing.
 """
-
+import logging
 import shutil
 import subprocess
 from pathlib import Path

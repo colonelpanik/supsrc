@@ -289,10 +289,7 @@ class GitEngine(RepositoryEngine):
             try:
                  if is_unborn:
                       commit_log.debug("Comparing index to empty tree (unborn HEAD for diff)")
-                      if not index.is_empty:
-                          diff = index.diff_to_tree(None)
-                      else:
-                          diff = None
+                      diff = index.diff_to_tree(None) if not index.is_empty else None
                  else:
                       head_commit = repo.head.peel()
                       commit_log.debug("Comparing index to HEAD tree", head_commit_oid=str(head_commit.id))
@@ -300,12 +297,10 @@ class GitEngine(RepositoryEngine):
             except pygit2.GitError as diff_err:
                  commit_log.warning("Could not diff index to HEAD tree, assuming changes exist for now", error=str(diff_err))
 
-            if diff is not None and not diff.deltas and not (is_unborn and not index.is_empty):
+            # FIX: Use idiomatic truthiness of the diff object to check for changes.
+            if not diff:
                  commit_log.info("Commit skipped: No changes detected in diff.")
                  return CommitResult(success=True, message="Commit skipped: No changes detected.", commit_hash=None)
-            elif diff is None and is_unborn and index.is_empty:
-                 commit_log.info("Commit skipped: Unborn HEAD and empty index.")
-                 return CommitResult(success=True, message="Commit skipped: Unborn HEAD and empty index.", commit_hash=None)
 
             # Signature
             try:
@@ -319,12 +314,8 @@ class GitEngine(RepositoryEngine):
                  signature = pygit2.Signature(fallback_name, fallback_email, timestamp, offset)
 
             # Commit message
-            change_summary_str = ""
-            if diff is not None:
-                 change_summary_str = self._generate_change_summary(diff)
-                 commit_log.debug("Generated change summary", summary_length=len(change_summary_str))
-            else:
-                 commit_log.debug("Skipping change summary generation as diff was not available/empty.")
+            change_summary_str = self._generate_change_summary(diff)
+            commit_log.debug("Generated change summary", summary_length=len(change_summary_str))
 
             commit_message_template_str = self._get_config_value(
                 "commit_message_template", config, "🔼⚙️ [skip ci] auto-commit\n\n{{change_summary}}"

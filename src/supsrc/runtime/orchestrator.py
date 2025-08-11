@@ -1,5 +1,5 @@
 #
-# supsrc/runtime/orchestrator.py
+# src/supsrc/runtime/orchestrator.py
 #
 
 import asyncio
@@ -57,12 +57,12 @@ log: StructLogger = structlog.get_logger("runtime.orchestrator")
 
 # --- Rule Type to Emoji Mapping ---
 RULE_EMOJI_MAP = {
-    "inactivity": "⏳",
-    # Add other known rule type strings (lowercase) and their emojis
-    # e.g., "filecount": "🗂️",
-    # e.g., "savecount": "💾",
+    "supsrc.rules.inactivity": "⏳",
+    "supsrc.rules.save_count": "💾",
+    "supsrc.rules.manual": "✋",
     "default": "⚙️", # Fallback
 }
+
 
 # Type alias for state map
 RepositoryStatesMap: TypeAlias = dict[str, RepositoryState]
@@ -422,24 +422,24 @@ class WatchOrchestrator:
                         # self._post_tui_log(repo_id, "DEBUG", f"Change: {event.event_type} {event.src_path.name}") # Redundant
 
                         rule_config_obj: RuleConfig = repo_config.rule
-                        rule_type_str_lc = getattr(rule_config_obj, "type", "default").lower()
-                        repo_state.rule_emoji = RULE_EMOJI_MAP.get(rule_type_str_lc, RULE_EMOJI_MAP["default"])
+                        rule_type_str = getattr(rule_config_obj, "type", "default")
+                        repo_state.rule_emoji = RULE_EMOJI_MAP.get(rule_type_str, RULE_EMOJI_MAP["default"])
                         if isinstance(rule_config_obj, InactivityRuleConfig):
                             repo_state.active_rule_description = f"Inactivity ({rule_config_obj.period.total_seconds():.0f}s)"
                             repo_state.rule_dynamic_indicator = f"({rule_config_obj.period.total_seconds():.0f}s period)"
                         else:
-                            repo_state.active_rule_description = f"{rule_type_str_lc.capitalize()} pending"
-                            repo_state.rule_dynamic_indicator = f"{rule_type_str_lc.capitalize()} pending"
+                            repo_state.active_rule_description = f"{rule_type_str.capitalize()} pending"
+                            repo_state.rule_dynamic_indicator = f"{rule_type_str.capitalize()} pending"
                         self._post_tui_state_update() # Update TUI with new rule description
                         event_log.debug("State updated after recording change and setting rule description")
 
                         # Rule evaluation phase
                         repo_state.display_status_emoji = "🧪" # Evaluating emoji
-                        repo_state.active_rule_description = f"Evaluating {rule_type_str_lc.capitalize()}..."
+                        repo_state.active_rule_description = f"Evaluating {rule_type_str}..."
                         repo_state.rule_dynamic_indicator = "Checking..." # Dynamic indicator for evaluation
-                        self._console_message(f"Evaluating {rule_type_str_lc.capitalize()} rule", repo_id=repo_id, style="cyan", emoji="🧪")
+                        self._console_message(f"Evaluating {rule_type_str} rule", repo_id=repo_id, style="cyan", emoji="🧪")
                         self._post_tui_state_update() # Update TUI for evaluating state
-                        event_log.debug(">>> About to check trigger condition", rule_type=rule_type_str_lc)
+                        event_log.debug(">>> About to check trigger condition", rule_type=rule_type_str)
 
                         rule_met = check_trigger_condition(repo_state, repo_config)
                         event_log.debug("Rule check evaluated", rule_met=rule_met)
@@ -561,7 +561,7 @@ class WatchOrchestrator:
                 # --- Set initial rule description, emoji, and dynamic indicator ---
                 if repo_state:
                     rule_conf_obj = repo_config.rule
-                    rule_type_str = getattr(rule_conf_obj, "type", "default").lower()
+                    rule_type_str = getattr(rule_conf_obj, "type", "default")
                     repo_state.rule_emoji = RULE_EMOJI_MAP.get(rule_type_str, RULE_EMOJI_MAP["default"])
 
                     if isinstance(rule_conf_obj, InactivityRuleConfig):

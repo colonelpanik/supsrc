@@ -244,8 +244,12 @@ class TestGitEngine:
 class TestGitCredentialManager:
     """Test Git credential management functionality."""
 
-    def test_ssh_key_auth_missing_files(self) -> None:
+    @patch('pygit2.credentials.KeypairFromAgent')
+    def test_ssh_key_auth_missing_files(self, mock_agent: Mock) -> None:
         """Test SSH key authentication with missing key files."""
+        # FIX: Mock the agent so it doesn't fall back and succeed
+        mock_agent.side_effect = pygit2.GitError("SSH agent not available")
+
         config = {"ssh_key_path": "/nonexistent/key"}
         manager = GitCredentialManager(config)
 

@@ -53,6 +53,8 @@ def setup_logging(
         json_logs: If True, format console output as JSON. Otherwise, use colored console output.
         log_file: Optional path for JSON file logging.
     """
+    ## Test fix - ensure any previous loggers are shut before we try to start to open new ones
+    logging.shutdown()
     log_level_name = logging.getLevelName(level)
     # Use stderr for setup messages to avoid interfering with potential JSON stdout
     # print(f"--- Setting up structlog logging (Level: {log_level_name}, JSON: {json_logs}, File: {log_file}) ---", file=sys.stderr)
