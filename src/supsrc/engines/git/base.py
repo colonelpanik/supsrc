@@ -18,11 +18,12 @@ from supsrc.config.models import GlobalConfig
 from supsrc.engines.git.info import GitRepoSummary
 
 # Use absolute imports
+from supsrc.exceptions import SupsrcError
 from supsrc.protocols import (
     CommitResult,
     PushResult,
     RepositoryEngine,
-    RepoStatusResult,
+    RepoStatusResult,  # Concrete result classes
     StageResult,
 )
 from supsrc.state import RepositoryState
@@ -441,6 +442,36 @@ class GitEngine(RepositoryEngine):
         except Exception as e:
             push_log.exception("Unexpected error performing push")
             return PushResult(success=False, message=f"Unexpected push error: {e}", remote_name=remote_name, branch_name=branch_name)
+
+    async def get_staged_diff(self, working_dir: Path) -> str:
+        """
+        Retrieves the diff of currently staged changes.
+
+        Args:
+            working_dir: The path to the repository.
+
+        Returns:
+            A string containing the git diff output.
+        """
+        diff_log = self._log.bind(path=str(working_dir))
+        diff_log.debug("Getting staged diff")
+        try:
+            repo = self._get_repo(working_dir)
+            if repo.head_is_unborn:
+                diff_log.debug("Comparing index to empty tree for unborn HEAD diff")
+                diff = repo.index.diff_to_tree(None)
+            else:
+                head_commit = repo.head.peel()
+                diff_log.debug("Comparing index to HEAD tree for diff", head_commit_oid=str(head_commit.id))
+                diff = repo.index.diff_to_tree(head_commit.tree)
+
+            return diff.patch or ""
+        except pygit2.GitError as e:
+            diff_log.error("Failed to get staged diff due to GitError", error=str(e))
+            raise SupsrcError(f"Could not retrieve staged diff: {e}") from e
+        except Exception as e:
+            diff_log.exception("Unexpected error getting staged diff")
+            raise SupsrcError(f"An unexpected error occurred while getting diff: {e}") from e
 
     def get_commit_history(self, working_dir: Path, limit: int = 10) -> list[str]:
         """Retrieves the last N commit messages from the repository."""

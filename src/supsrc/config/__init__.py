@@ -14,21 +14,25 @@ from .loader import load_config
 from .models import (
     GlobalConfig,
     InactivityRuleConfig,  # Export specific rule types if needed externally
+    LlmConfig,
     ManualRuleConfig,
     RepositoryConfig,
     RuleConfig,  # Export the union type
     SaveCountRuleConfig,
     SupsrcConfig,
+    TestingConfig,
 )
 
 __all__ = [
     "GlobalConfig",
     "InactivityRuleConfig",
+    "LlmConfig",
     "ManualRuleConfig",
     "RepositoryConfig",
     "RuleConfig",
     "SaveCountRuleConfig",
     "SupsrcConfig",
+    "TestingConfig",
     "load_config",
 ]
 

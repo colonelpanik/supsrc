@@ -70,6 +70,14 @@ class LlmConfig:
     options: Mapping[str, Any] = field(factory=dict)
 
 
+# --- Testing Configuration Model (NEW for Phase 2) ---
+@define(frozen=True, slots=True)
+class TestingConfig:
+    """Configuration for running tests."""
+    runner: str = field(default="pytest") # e.g., "pytest", "subprocess"
+    command: list[str] | None = field(default=None) # Optional override for the test command
+
+
 # --- Repository and Global Config Models ---
 
 @mutable(slots=True)
@@ -88,6 +96,8 @@ class RepositoryConfig:
     enabled: bool = field(default=True)
     # Optional LLM configuration for this specific repository (NEW)
     llm: LlmConfig | None = field(default=None)
+    # Optional Testing configuration for this repository (NEW for Phase 2)
+    testing: TestingConfig | None = field(default=None)
 
 
     # Internal state flag
