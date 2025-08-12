@@ -29,6 +29,7 @@ class LlmTestAnalyzer:
     async def analyze(
         self,
         staged_diff: str,
+        staged_files: list[str],
         command: list[str],
         repo_path: Path,
     ) -> LlmAnalysisResult:
@@ -37,6 +38,7 @@ class LlmTestAnalyzer:
 
         Args:
             staged_diff: The git diff of staged code changes.
+            staged_files: A list of file paths that were staged.
             command: The test command to execute.
             repo_path: The path to the repository being analyzed.
 
@@ -53,6 +55,7 @@ class LlmTestAnalyzer:
 
         analysis_result = await self._llm.analyze_and_suggest(
             staged_diff=staged_diff,
+            staged_files=staged_files,
             test_output=combined_output,
             test_exit_code=test_result.exit_code,
             repo_path=repo_path,

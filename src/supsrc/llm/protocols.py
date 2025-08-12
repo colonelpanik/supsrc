@@ -29,6 +29,7 @@ class LlmProvider(Protocol):
     async def analyze_and_suggest(
         self,
         staged_diff: str,
+        staged_files: list[str],
         test_output: str,
         test_exit_code: int,
         repo_path: Path,
@@ -38,6 +39,7 @@ class LlmProvider(Protocol):
 
         Args:
             staged_diff: The git diff of staged changes.
+            staged_files: A list of file paths that were staged.
             test_output: The combined stdout/stderr from the test run.
             test_exit_code: The exit code of the test command.
             repo_path: The path to the repository, for context.

@@ -22,7 +22,7 @@ DEFAULT_OLLAMA_URL = "http://localhost:11434"
 DEFAULT_TIMEOUT = 60.0  # seconds
 SYSTEM_PROMPT = """
 You are an expert programmer and test engineer integrated into an automated development tool called `supsrc`.
-Your role is to analyze the results of a test run and the corresponding code changes (as a git diff) to make an intelligent recommendation.
+Your role is to analyze the results of a test run, a list of changed files, and the corresponding code changes (as a git diff) to make an intelligent recommendation.
 
 You MUST respond with a single, valid JSON object. Do not add any explanatory text before or after the JSON.
 
@@ -36,12 +36,28 @@ The JSON object must have the following structure:
 - If the test exit code is 0 (success):
   - "is_safe_to_commit" MUST be true.
   - "analysis_type" MUST be "commit_suggestion".
-  - "suggestion" MUST be a concise, well-formatted git commit message in conventional commit style (e.g., "feat: ...", "fix: ...", "refactor: ..."). The commit message should accurately summarize the provided git diff. Do NOT include the diff itself in the commit message body.
+  - "suggestion" MUST be a well-formatted git commit message.
+  - The commit message should follow the conventional commit specification (e.g., "feat: ...", "fix: ...", "refactor: ...").
+  - The commit subject line should be short and describe the core change.
+  - The commit body should succinctly summarize the *intent* of the change, not just list what was done. Infer the "why" from the code.
+  - The commit message MUST end with a trailer listing the changed files, like this:
+    ```
+    auto-commit: <commit message you created>
 
+    Modified (2):
+    - path/to/file1.py
+    - path/to/another/file.ext
+
+    Added (1):
+    - path/to/another.py
+
+    Removed (1):
+    - path/to/removed.py
+    ```
 - If the test exit code is not 0 (failure):
   - "is_safe_to_commit" MUST be false.
   - "analysis_type" MUST be "test_failure".
-  - "suggestion" MUST be a brief, helpful diagnosis of the test failure. Analyze the test output and the diff to determine if the failure is likely due to a bug in the new code or an issue with the test itself (e.g., outdated snapshot, incorrect mock). The suggestion should guide the developer on how to fix the issue.
+  - "suggestion" MUST be a brief, helpful diagnosis of the test failure. Analyze the test output and the diff to determine if the failure is likely due to a bug in the new code or an issue with the test itself. Guide the developer on how to fix it.
 """
 
 USER_PROMPT_TEMPLATE = """
@@ -50,13 +66,15 @@ Here is the data for your analysis:
 1. Test Exit Code:
 {exit_code}
 
-2. Test Output (stdout/stderr):
+2. Staged Files:
+{staged_files}
 
+3. Test Output (stdout/stderr):
 {test_output}
 
-3. Staged Code Changes (git diff):
+4. Staged Code Changes (git diff):
 ```diff
-{staged_diff}
+{staged_diff}```
 
 Please provide your analysis as a single JSON object.
 """
@@ -76,6 +94,7 @@ class OllamaProvider(LlmProvider):
     async def analyze_and_suggest(
         self,
         staged_diff: str,
+        staged_files: list[str],
         test_output: str,
         test_exit_code: int,
         repo_path: Path,
@@ -85,8 +104,11 @@ class OllamaProvider(LlmProvider):
         """
         self._log.info("Starting analysis with Ollama")
 
+        formatted_staged_files = "\n".join(f"- {f}" for f in staged_files) if staged_files else "No files staged."
+
         user_prompt = USER_PROMPT_TEMPLATE.format(
             exit_code=test_exit_code,
+            staged_files=formatted_staged_files,
             test_output=test_output or "No output.",
             staged_diff=staged_diff or "No staged changes.",
         )

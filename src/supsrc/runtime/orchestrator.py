@@ -211,6 +211,8 @@ class WatchOrchestrator:
             if not stage_result.success:
                 raise SupsrcError(f"Failed to stage changes: {stage_result.message}")
 
+            staged_files_list = stage_result.files_staged or []
+
             llm_analyzer = self.repo_test_analyzers.get(repo_id)
             if llm_analyzer:
                 # --- LLM-driven Test & Commit Workflow ---
@@ -223,7 +225,12 @@ class WatchOrchestrator:
                 test_config = repo_config.testing
                 command = test_config.command or [test_config.runner]
 
-                analysis_result = await llm_analyzer.analyze(staged_diff, command, working_dir)
+                analysis_result = await llm_analyzer.analyze(
+                    staged_diff=staged_diff,
+                    staged_files=staged_files_list,
+                    command=command,
+                    repo_path=working_dir
+                )
 
                 if analysis_result.is_safe_to_commit:
                     callback_log.info("LLM analysis determined changes are safe to commit.", suggestion=analysis_result.suggestion)
@@ -253,8 +260,10 @@ class WatchOrchestrator:
                 self._console_message("Performing commit...", repo_id=repo_id, style="blue bold", emoji="🔄")
                 self._post_tui_state_update()
 
+                commit_message_template = "feat: auto-commit changes at {{timestamp}}\n\n{{change_summary}}"
+
                 commit_result: CommitResult = await repo_engine.perform_commit(
-                    "unused", repo_state, engine_config_dict, global_config, working_dir
+                    commit_message_template, repo_state, engine_config_dict, global_config, working_dir
                 )
                 if not commit_result.success:
                     raise SupsrcError(f"Commit failed: {commit_result.message}")
@@ -290,7 +299,6 @@ class WatchOrchestrator:
             if repo_state:
                  repo_state.update_status(RepositoryStatus.ERROR, error_message)
                  self._post_tui_state_update()
-
 
     async def _consume_events(self) -> None:
         """Consumes events from the queue, updates state, manages timers, checks rules."""
@@ -335,16 +343,12 @@ class WatchOrchestrator:
                     event_log.warning("Ignoring event for unknown/disabled/unconfigured repository.")
                     continue
 
-                # --- BEGIN FIX: State-Based Action Guard ---
-                # If an action is already in progress for this repo, ignore subsequent events
-                # until it returns to an IDLE or CHANGED state. This prevents feedback loops.
                 if repo_state.status not in (RepositoryStatus.IDLE, RepositoryStatus.CHANGED):
                     event_log.debug(
                         "Ignoring event: an action is already in progress for this repository.",
                         current_status=repo_state.status.name
                     )
                     continue
-                # --- END FIX ---
 
                 event_log.debug("Processing received event")
                 repo_state.record_change()
@@ -407,7 +411,6 @@ class WatchOrchestrator:
                 repo_state = RepositoryState(repo_id=repo_id)
                 self.repo_states[repo_id] = repo_state
 
-                # Load Repository Engine
                 engine_config = repo_config.repository
                 engine_type = engine_config.get("type")
                 if engine_type == "supsrc.engines.git":
@@ -417,7 +420,6 @@ class WatchOrchestrator:
                 self.repo_engines[repo_id] = engine_instance
                 init_log.debug("Engine loaded", engine_class=type(engine_instance).__name__)
 
-                # Setup LLM Test Analyzer if configured
                 if repo_config.llm and repo_config.testing:
                     init_log.info("LLM and testing config found, setting up analyzer.")
                     try:
@@ -429,9 +431,8 @@ class WatchOrchestrator:
                     except Exception as analyzer_exc:
                         init_log.error("Failed to initialize LlmTestAnalyzer", error=str(analyzer_exc), exc_info=True)
                         repo_state.update_status(RepositoryStatus.ERROR, f"LLM/Test setup failed: {analyzer_exc}")
-                        continue # Skip to next repo
+                        continue
 
-                # Get Initial Summary
                 if hasattr(engine_instance, "get_summary"):
                     summary = cast(GitRepoSummary, await engine_instance.get_summary(repo_config.path))
                     if summary.head_commit_hash:
@@ -451,7 +452,6 @@ class WatchOrchestrator:
 
     def _setup_monitoring(self, enabled_repo_ids: list[str]) -> list[str]:
         """Adds successfully initialized repositories to the MonitoringService."""
-        # This method remains unchanged from previous implementation
         successfully_added_ids = []
         if not self.config: return []
         self.monitor_service = MonitoringService(self.event_queue)
@@ -474,7 +474,6 @@ class WatchOrchestrator:
 
     async def run(self) -> None:
         """Main execution method for the watch process."""
-        # This method's structure remains largely the same, calling the updated helper methods.
         self._safe_log("info", "Starting orchestrator run", config_path=str(self.config_path))
         try:
             self.config = load_config(self.config_path)
@@ -516,7 +515,6 @@ class WatchOrchestrator:
 
     async def get_repository_details(self, repo_id: str) -> dict[str, Any]:
         """Retrieves detailed information for a given repository."""
-        # This method remains unchanged.
         repo_engine = self.repo_engines.get(repo_id)
         repo_config = self.config.repositories.get(repo_id) if self.config else None
         if isinstance(repo_engine, GitEngine) and repo_config:

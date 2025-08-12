@@ -239,7 +239,6 @@ class GitEngine(RepositoryEngine):
     def _generate_change_summary(self, diff: pygit2.Diff) -> str:
         """Generates a summary string from a pygit2 Diff object."""
         added, modified, deleted, renamed, typechanged = [], [], [], [], []
-        # --- FIX: Iterate over diff.deltas ---
         for delta in diff.deltas:
             path = delta.new_file.path if delta.status != pygit2.GIT_DELTA_DELETED else delta.old_file.path
             if delta.status == pygit2.GIT_DELTA_ADDED: added.append(path)
@@ -247,7 +246,6 @@ class GitEngine(RepositoryEngine):
             elif delta.status == pygit2.GIT_DELTA_DELETED: deleted.append(path)
             elif delta.status == pygit2.GIT_DELTA_RENAMED: renamed.append(f"{delta.old_file.path} -> {delta.new_file.path}")
             elif delta.status == pygit2.GIT_DELTA_TYPECHANGE: typechanged.append(path)
-        # ------------------------------------
 
         summary_lines = []
         if added: summary_lines.append(f"Added ({len(added)}):")
@@ -298,7 +296,6 @@ class GitEngine(RepositoryEngine):
             except pygit2.GitError as diff_err:
                  commit_log.warning("Could not diff index to HEAD tree, assuming changes exist for now", error=str(diff_err))
 
-            # FIX: Use idiomatic truthiness of the diff object to check for changes.
             if not diff:
                  commit_log.info("Commit skipped: No changes detected in diff.")
                  return CommitResult(success=True, message="Commit skipped: No changes detected.", commit_hash=None)
@@ -314,19 +311,23 @@ class GitEngine(RepositoryEngine):
                  offset = 0 # UTC
                  signature = pygit2.Signature(fallback_name, fallback_email, timestamp, offset)
 
+            # --- BUG FIX STARTS HERE ---
+            # Use the message_template parameter passed from the orchestrator.
+            # This allows it to be either an AI-generated message or a legacy template.
+            # The template replacement logic below will not affect an already-formatted AI message.
+            final_message_source = message_template
+
             # Commit message
             change_summary_str = self._generate_change_summary(diff)
             commit_log.debug("Generated change summary", summary_length=len(change_summary_str))
-
-            commit_message_template_str = self._get_config_value(
-                "commit_message_template", config, "🔼⚙️ [skip ci] auto-commit\n\n{{change_summary}}"
-            )
+            
             timestamp_str = datetime.now(UTC).isoformat()
-            commit_message = commit_message_template_str.replace("{{timestamp}}", timestamp_str)
+            commit_message = final_message_source.replace("{{timestamp}}", timestamp_str)
             commit_message = commit_message.replace("{{repo_id}}", state.repo_id)
             commit_message = commit_message.replace("{{save_count}}", str(state.save_count))
             commit_message = commit_message.replace("{{change_summary}}", change_summary_str)
             commit_message = commit_message.rstrip()
+            # --- BUG FIX ENDS HERE ---
 
             # Parents
             parents = [] if is_unborn else [repo.head.target]
