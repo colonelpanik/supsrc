@@ -17,10 +17,9 @@ from .runner import run_pygit2_async
 
 log = structlog.get_logger("engines.git.stage")
 
+
 async def stage_git_changes(
-    repo: pygit2.Repository,
-    working_dir: Path,
-    files: list[Path] | None = None
+    repo: pygit2.Repository, working_dir: Path, files: list[Path] | None = None
 ) -> StageResult:
     """
     Stages changes in the Git repository using pygit2 asynchronously.
@@ -38,7 +37,10 @@ async def stage_git_changes(
     log.debug(f"Staging {action}", repo_path=str(working_dir))
 
     try:
-        index = await run_pygit2_async(repo.index) # Get the index object
+        index = await run_pygit2_async(repo.index)  # Get the index object
+        
+        # Refresh the index to ensure we have the latest state from disk
+        await run_pygit2_async(index.read)
 
         if files is None:
             # Stage all changes (tracked, untracked, deleted)
@@ -66,11 +68,24 @@ async def stage_git_changes(
                     relative_files.append(relative_path_str)
                     await run_pygit2_async(index.add, relative_path_str)
                 except ValueError:
-                    log.warning("File path is not relative to working directory, skipping staging.", file=str(f), repo_path=str(working_dir))
+                    log.warning(
+                        "File path is not relative to working directory, skipping staging.",
+                        file=str(f),
+                        repo_path=str(working_dir),
+                    )
                 except KeyError:
-                    log.warning("File path not found in repository index, skipping staging.", file=str(f), repo_path=str(working_dir))
+                    log.warning(
+                        "File path not found in repository index, skipping staging.",
+                        file=str(f),
+                        repo_path=str(working_dir),
+                    )
 
-            log.debug("Staged specific files", count=len(relative_files), files=relative_files, repo_path=str(working_dir))
+            log.debug(
+                "Staged specific files",
+                count=len(relative_files),
+                files=relative_files,
+                repo_path=str(working_dir),
+            )
 
         # Write the index changes to disk
         await run_pygit2_async(index.write)
@@ -79,8 +94,17 @@ async def stage_git_changes(
         return StageResult(success=True, message=f"Staged {action} successfully.")
 
     except Exception as e:
-        log.error("Failed to stage changes", repo_path=str(working_dir), error=str(e), exc_info=True)
-        if isinstance(e, GitStageError): raise
-        raise GitStageError(f"Failed to stage changes: {e}", repo_path=str(working_dir), details=e) from e
+        log.error(
+            "Failed to stage changes",
+            repo_path=str(working_dir),
+            error=str(e),
+            exc_info=True,
+        )
+        if isinstance(e, GitStageError):
+            raise
+        raise GitStageError(
+            f"Failed to stage changes: {e}", repo_path=str(working_dir), details=e
+        ) from e
+
 
 # 🔼⚙️

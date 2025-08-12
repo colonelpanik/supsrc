@@ -5,19 +5,21 @@
 Comprehensive tests for configuration loading and validation.
 """
 
-from pathlib import Path
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 
 from supsrc.config import load_config
 from supsrc.config.models import (
-    SupsrcConfig, GlobalConfig, RepositoryConfig,
-    InactivityRuleConfig, SaveCountRuleConfig, ManualRuleConfig
+    InactivityRuleConfig,
+    ManualRuleConfig,
+    SaveCountRuleConfig,
+    SupsrcConfig,
 )
 from supsrc.exceptions import (
-    ConfigFileNotFoundError, ConfigParsingError,
-    ConfigValidationError
+    ConfigFileNotFoundError,
+    ConfigParsingError,
 )
 
 
@@ -49,6 +51,13 @@ class TestConfigLoading:
         config = load_config(config_file)
 
         assert isinstance(config, SupsrcConfig)
+        assert config.global_config.log_level == "DEBUG"
+        assert len(config.repositories) == 1
+
+        repo_config = config.repositories["test-repo"]
+        assert repo_config.enabled is True
+        assert isinstance(repo_config.rule, InactivityRuleConfig)
+        assert repo_config.rule.period == timedelta(seconds=30)
         assert config.global_config.log_level == "DEBUG"
         assert len(config.repositories) == 1
 
@@ -203,5 +212,6 @@ class TestGlobalConfiguration:
 
         assert config.global_config.log_level == "DEBUG"
         assert config.global_config.numeric_log_level == 10
+
 
 # 🧪⚙️

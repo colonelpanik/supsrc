@@ -14,8 +14,8 @@ from typing import Any, Literal, TypeAlias
 
 # --- Third-party Libraries ---
 try:
-    import rich.pretty
-    RICH_AVAILABLE = True
+    import importlib.util
+    RICH_AVAILABLE = importlib.util.find_spec("rich") is not None
 except ImportError:
     RICH_AVAILABLE = False
 
@@ -56,13 +56,10 @@ WARN_STYLE = "yellow"
 
 # --- Helper Functions & Validators ---
 
-def _parse_duration(
-    duration_str: str, config_path_context: Path | None = None
-) -> timedelta:
+
+def _parse_duration(duration_str: str, config_path_context: Path | None = None) -> timedelta:
     """Parses duration string. Raises DurationValidationError."""
-    log.debug(
-        "Parsing duration string", duration_str=duration_str, emoji_key="time"
-    )
+    log.debug("Parsing duration string", duration_str=duration_str, emoji_key="time")
     pattern = re.compile(
         r"^\s*(?:(?P<hours>\d+)\s*h)?\s*(?:(?P<minutes>\d+)\s*m)?\s*(?:(?P<seconds>\d+)\s*s)?\s*$"
     )
@@ -70,9 +67,7 @@ def _parse_duration(
     if not match or not duration_str.strip():
         msg = "Invalid duration format. Use '1h', '30m', '15s'."
         log.error(msg, received=duration_str, emoji_key="fail")
-        raise DurationValidationError(
-            msg, duration_str, str(config_path_context)
-        )
+        raise DurationValidationError(msg, duration_str, str(config_path_context))
 
     parts = match.groupdict()
     time_params = {k: int(v) for k, v in parts.items() if v}
@@ -80,9 +75,7 @@ def _parse_duration(
     if not time_params:
         msg = "Empty duration string provided"
         log.error(msg, received=duration_str, emoji_key="fail")
-        raise DurationValidationError(
-            msg, duration_str, str(config_path_context)
-        )
+        raise DurationValidationError(msg, duration_str, str(config_path_context))
 
     try:
         duration = timedelta(**time_params)
@@ -95,9 +88,7 @@ def _parse_duration(
             exc_info=True,
             emoji_key="fail",
         )
-        raise DurationValidationError(
-            f"{msg}: {e}", duration_str, str(config_path_context)
-        ) from e
+        raise DurationValidationError(f"{msg}: {e}", duration_str, str(config_path_context)) from e
 
     if duration <= timedelta(0):
         msg = "Duration must be positive"
@@ -107,9 +98,7 @@ def _parse_duration(
             duration_str=duration_str,
             emoji_key="fail",
         )
-        raise DurationValidationError(
-            f"{msg}: {duration}", duration_str, str(config_path_context)
-        )
+        raise DurationValidationError(f"{msg}: {duration}", duration_str, str(config_path_context))
 
     log.debug(
         "Parsed duration",
@@ -126,9 +115,7 @@ def _validate_log_level(inst: Any, attr: Any, value: str) -> None:
     valid = logging._nameToLevel.keys()
     if value.upper() not in valid:
         msg = "Invalid log_level"
-        log.error(
-            msg, value=value, valid_levels=list(valid), emoji_key="fail"
-        )
+        log.error(msg, value=value, valid_levels=list(valid), emoji_key="fail")
         raise ConfigValidationError(f"{msg}: '{value}'")
     log.debug("Log level valid", value=value)
 
@@ -137,9 +124,7 @@ def _validate_positive_int(inst: Any, attr: Any, value: int) -> None:
     """Validator ensures integer is positive."""
     if not isinstance(value, int) or value <= 0:
         msg = f"Field '{attr.name}' must be positive integer"
-        log.error(
-            msg, field_name=attr.name, value=value, emoji_key="fail"
-        )
+        log.error(msg, field_name=attr.name, value=value, emoji_key="fail")
         raise ConfigValidationError(f"{msg}, got {value}")
     log.debug(
         f"Field '{attr.name}' validated positive",
@@ -150,9 +135,11 @@ def _validate_positive_int(inst: Any, attr: Any, value: int) -> None:
 
 # --- attrs Data Classes ---
 
+
 @define(slots=True)
 class InactivityTrigger:
     """Commit trigger based on inactivity period."""
+
     type: Literal["inactivity"] = field(default="inactivity", init=False)
     period: timedelta = field()
 
@@ -160,6 +147,7 @@ class InactivityTrigger:
 @define(slots=True)
 class SaveCountTrigger:
     """Commit trigger based on number of save events."""
+
     type: Literal["save_count"] = field(default="save_count", init=False)
     count: int = field(validator=_validate_positive_int)
 
@@ -167,6 +155,7 @@ class SaveCountTrigger:
 @define(slots=True)
 class ManualTrigger:
     """Commit trigger requiring manual intervention."""
+
     type: Literal["manual"] = field(default="manual", init=False)
 
 
@@ -179,6 +168,7 @@ class RepositoryConfig:
     """
     Configuration for a repository. Mutable to allow disabling on load if path invalid.
     """
+
     # Mandatory fields first
     path: Path = field()
     trigger: TriggerConfig = field()
@@ -193,11 +183,11 @@ class RepositoryConfig:
 @define(frozen=True, slots=True)
 class GlobalConfig:
     """Global default settings for supsrc."""
+
     log_level: str = field(default=DEFAULT_LOG_LEVEL, validator=_validate_log_level)
-    default_commit_message: str = field(
-        default="🔼⚙️ auto-commit [skip ci]"
-    )
+    default_commit_message: str = field(default="🔼⚙️ auto-commit [skip ci]")
     default_auto_push: bool = field(default=True)
+    last_change_threshold_hours: float = field(default=3.0)  # Hours before showing absolute time
 
     @property
     def numeric_log_level(self) -> int:
@@ -209,10 +199,9 @@ class GlobalConfig:
 @define(frozen=True, slots=True)
 class SupsrcConfig:
     """Root configuration object for the supsrc application."""
+
     repositories: dict[str, RepositoryConfig] = field(factory=dict)
-    global_config: GlobalConfig = field(
-        factory=GlobalConfig, metadata={"toml_name": "global"}
-    )
+    global_config: GlobalConfig = field(factory=GlobalConfig, metadata={"toml_name": "global"})
 
 
 # --- Cattrs Converter and Hooks ---
@@ -224,9 +213,7 @@ _CURRENT_CONFIG_PATH_CONTEXT: Path | None = None  # Context for hooks
 def _structure_path_simple(path_str: str, type_hint: type[Path]) -> Path:
     """Cattrs structure hook for Path: Expands/resolves ONLY."""
     if not isinstance(path_str, str):
-        raise ConfigValidationError(
-            f"Path must be string, got: {type(path_str).__name__}"
-        )
+        raise ConfigValidationError(f"Path must be string, got: {type(path_str).__name__}")
     log.debug("Structuring path string", path_str=path_str, emoji_key="path")
     try:
         p = Path(path_str).expanduser().resolve()
@@ -234,12 +221,8 @@ def _structure_path_simple(path_str: str, type_hint: type[Path]) -> Path:
         return p
     except Exception as e:
         msg = "Error processing path string"
-        log.error(
-            msg, path_str=path_str, error=str(e), exc_info=True, emoji_key="fail"
-        )
-        raise ConfigValidationError(
-            f"{msg} '{path_str}': {e}"
-        ) from e
+        log.error(msg, path_str=path_str, error=str(e), exc_info=True, emoji_key="fail")
+        raise ConfigValidationError(f"{msg} '{path_str}': {e}") from e
 
 
 # Register hooks with the converter
@@ -252,14 +235,13 @@ converter.register_structure_hook(
 
 # --- Core Loading Function ---
 
+
 def load_config(config_path: Path) -> SupsrcConfig:
     """Loads, validates, structures config. Handles invalid paths gracefully."""
     global _CURRENT_CONFIG_PATH_CONTEXT
     _CURRENT_CONFIG_PATH_CONTEXT = config_path
 
-    log.info(
-        "Attempting config load", path=str(config_path), emoji_key="load"
-    )
+    log.info("Attempting config load", path=str(config_path), emoji_key="load")
     if not config_path.is_file():
         msg = "Config file not found"
         log.error(msg, path=str(config_path), emoji_key="fail")
@@ -279,9 +261,7 @@ def load_config(config_path: Path) -> SupsrcConfig:
             exc_info=True,
             emoji_key="fail",
         )
-        raise ConfigParsingError(
-            str(e), path=str(config_path), details=e
-        ) from e
+        raise ConfigParsingError(str(e), path=str(config_path), details=e) from e
 
     try:
         log.debug("Structuring TOML data...")
@@ -335,9 +315,7 @@ def load_config(config_path: Path) -> SupsrcConfig:
         notes = getattr(e, "__notes__", None)
         if notes:
             details_str = "\nDetails:\n" + "\n".join(notes)
-        raise ConfigValidationError(
-            f"{e}{details_str}", path=str(config_path), details=e
-        ) from e
+        raise ConfigValidationError(f"{e}{details_str}", path=str(config_path), details=e) from e
     except Exception as e:
         log.critical(
             "Unexpected error during config structuring",
@@ -350,5 +328,6 @@ def load_config(config_path: Path) -> SupsrcConfig:
         ) from e
     finally:
         _CURRENT_CONFIG_PATH_CONTEXT = None
+
 
 # 🔼⚙️

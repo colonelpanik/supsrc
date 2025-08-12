@@ -44,18 +44,33 @@ Automated Git commit/push utility based on filesystem events and rules.
 *   **🕶️ `.gitignore` Respect:** Automatically ignores files specified in the repository's `.gitignore`.
 *   **📊 Structured Logging:** Detailed logging using `structlog` for observability (JSON or colored console output).
 *   **🖥️ Optional TUI:** An interactive Terminal User Interface (built with `textual`) for monitoring repository status and logs in real-time.
+*   **📟 Tail Mode:** A headless, non-interactive mode for monitoring repositories without terminal control issues (useful for scripts and automation).
 
 ## 🚀 Installation
 
-Ensure you have Python 3.11 or later installed.
+### Using uv (Recommended)
+
+[uv](https://github.com/astral-sh/uv) is a fast Python package installer and resolver:
+
+```bash
+# Install uv if you haven't already
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install supsrc
+uv pip install supsrc
+
+# Install with TUI support
+uv pip install 'supsrc[tui]'
+```
+
+### Using pip
+
+Ensure you have Python 3.11 or later installed:
 
 ```bash
 pip install supsrc
-```
 
-To include the optional Textual TUI:
-
-```bash
+# With TUI support
 pip install 'supsrc[tui]'
 ```
 
@@ -75,8 +90,9 @@ pip install 'supsrc[tui]'
     # Increase log verbosity
     supsrc watch --log-level DEBUG
 
-    # Run with the Textual TUI (if installed)
-    supsrc watch --tui
+    # Run in tail mode (headless, non-interactive)
+    supsrc tail
+    supsrc tail -c /path/to/your/config.toml
     ```
 
 3.  **Check Configuration:** Validate and display the loaded configuration (including environment variable overrides):
@@ -86,7 +102,7 @@ pip install 'supsrc[tui]'
     supsrc config show -c path/to/config.toml
     ```
 
-Press `Ctrl+C` to stop the watcher gracefully.
+4.  **Stop the Watcher:** Press `Ctrl+C` to stop the watcher gracefully.
 
 ## ⚙️ Configuration (`supsrc.conf`)
 
@@ -153,9 +169,9 @@ log_level = "INFO" # DEBUG, INFO, WARNING, ERROR, CRITICAL
 ### Environment Variable Overrides
 
 *   `SUPSRC_CONF`: Path to the configuration file.
-*   `SUPSRC_LOG_LEVEL`: Overrides the `log_level` in the `[global]` section.
+*   `SUPSRC_LOG_LEVEL`: Sets the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
 *   `SUPSRC_LOG_FILE`: Path to write JSON logs to a file.
-*   `SUPSRC_JSON_LOGS`: Set to `true` or `1` to output console logs as JSON.
+*   `SUPSRC_JSON_LOGS`: Set to `true`, `1`, `yes`, or `on` to output console logs as JSON.
 
 ## 룰 Rules Explained
 
@@ -201,6 +217,36 @@ If installed (`pip install 'supsrc[tui]'`) and run with `supsrc watch --tui`, a 
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to open an issue to report bugs, suggest features, or ask questions. Pull requests are greatly appreciated.
+
+### Development Setup
+
+We use `uv` for development:
+
+```bash
+# Clone the repository
+git clone https://github.com/provide-io/supsrc.git
+cd supsrc
+
+# Install uv if you haven't already
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Create virtual environment and install dependencies
+uv venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Install in development mode with TUI support
+uv pip install -e ".[tui]"
+
+# Install development tools
+uv pip install pytest ruff mypy
+
+# Run tests
+uv run pytest
+
+# Run linting
+uv run ruff check .
+uv run ruff format .
+```
 
 ## 📜 License
 

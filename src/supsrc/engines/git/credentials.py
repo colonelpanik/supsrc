@@ -27,11 +27,14 @@ class GitCredentialManager:
         self._log = log.bind(component="CredentialManager")
 
     def get_credentials(
-        self,
-        url: str,
-        username_from_url: str | None,
-        allowed_types: int
-    ) -> pygit2.credentials.Keypair | pygit2.credentials.KeypairFromAgent | pygit2.credentials.UserPass | pygit2.credentials.Username | None:
+        self, url: str, username_from_url: str | None, allowed_types: int
+    ) -> (
+        pygit2.credentials.Keypair
+        | pygit2.credentials.KeypairFromAgent
+        | pygit2.credentials.UserPass
+        | pygit2.credentials.Username
+        | None
+    ):
         """
         Comprehensive credential resolution with multiple strategies.
 
@@ -44,9 +47,7 @@ class GitCredentialManager:
             Appropriate credential object or None
         """
         cred_log = self._log.bind(
-            url=url,
-            username_from_url=username_from_url,
-            allowed_types=allowed_types
+            url=url, username_from_url=username_from_url, allowed_types=allowed_types
         )
 
         # Strategy 1: SSH Key Authentication
@@ -71,9 +72,7 @@ class GitCredentialManager:
         if allowed_types & pygit2.GIT_CREDENTIAL_DEFAULT:
             cred_log.debug("Attempting default credential resolution")
             try:
-                return pygit2.credentials.Username(
-                    username_from_url or getpass.getuser()
-                )
+                return pygit2.credentials.Username(username_from_url or getpass.getuser())
             except Exception as e:
                 cred_log.debug("Default credentials failed", error=str(e))
 
@@ -81,10 +80,7 @@ class GitCredentialManager:
         return None
 
     def _try_ssh_key_auth(
-        self,
-        url: str,
-        username_from_url: str | None,
-        cred_log: Any
+        self, url: str, username_from_url: str | None, cred_log: Any
     ) -> pygit2.credentials.Keypair | None:
         """Attempt SSH key authentication."""
         if not self.ssh_key_path:
@@ -104,14 +100,14 @@ class GitCredentialManager:
                 return None
 
             passphrase = self.ssh_key_passphrase or ""
-            cred_log.debug("Attempting SSH key authentication",
-                          user=ssh_user, key_path=str(key_path))
+            cred_log.debug(
+                "Attempting SSH key authentication",
+                user=ssh_user,
+                key_path=str(key_path),
+            )
 
             return pygit2.credentials.Keypair(
-                ssh_user,
-                str(pub_key_path),
-                str(key_path),
-                passphrase
+                ssh_user, str(pub_key_path), str(key_path), passphrase
             )
 
         except Exception as e:
@@ -119,10 +115,7 @@ class GitCredentialManager:
             return None
 
     def _try_ssh_agent_auth(
-        self,
-        url: str,
-        username_from_url: str | None,
-        cred_log: Any
+        self, url: str, username_from_url: str | None, cred_log: Any
     ) -> pygit2.credentials.KeypairFromAgent | None:
         """Attempt SSH agent authentication."""
         try:
@@ -136,10 +129,7 @@ class GitCredentialManager:
             return None
 
     def _try_userpass_auth(
-        self,
-        url: str,
-        username_from_url: str | None,
-        cred_log: Any
+        self, url: str, username_from_url: str | None, cred_log: Any
     ) -> pygit2.credentials.UserPass | None:
         """Attempt username/password authentication from environment."""
         git_username = os.getenv("GIT_USERNAME")
@@ -150,8 +140,7 @@ class GitCredentialManager:
             return None
 
         try:
-            cred_log.debug("Attempting username/password authentication",
-                          username=git_username)
+            cred_log.debug("Attempting username/password authentication", username=git_username)
             return pygit2.credentials.UserPass(git_username, git_password)
 
         except Exception as e:
@@ -170,11 +159,14 @@ class RemoteCallbacks(pygit2.RemoteCallbacks):
         self._log = log.bind(component="RemoteCallbacks")
 
     def credentials(
-        self,
-        url: str,
-        username_from_url: str | None,
-        allowed_types: int
-    ) -> pygit2.credentials.Keypair | pygit2.credentials.KeypairFromAgent | pygit2.credentials.UserPass | pygit2.credentials.Username | None:
+        self, url: str, username_from_url: str | None, allowed_types: int
+    ) -> (
+        pygit2.credentials.Keypair
+        | pygit2.credentials.KeypairFromAgent
+        | pygit2.credentials.UserPass
+        | pygit2.credentials.Username
+        | None
+    ):
         """Handle credential requests with retry logic."""
         self._attempts += 1
 
@@ -182,29 +174,35 @@ class RemoteCallbacks(pygit2.RemoteCallbacks):
             self._log.error("Maximum credential attempts exceeded")
             return None
 
-        self._log.debug("Credential request",
-                       attempt=self._attempts,
-                       url=url,
-                       allowed_types=allowed_types)
-
-        return self.credential_manager.get_credentials(
-            url, username_from_url, allowed_types
+        self._log.debug(
+            "Credential request",
+            attempt=self._attempts,
+            url=url,
+            allowed_types=allowed_types,
         )
+
+        return self.credential_manager.get_credentials(url, username_from_url, allowed_types)
 
     def update_tips(self, refname: str, old_oid: pygit2.Oid, new_oid: pygit2.Oid) -> None:
         """Log reference updates."""
-        self._log.debug("Reference updated",
-                       ref=refname,
-                       old_oid=str(old_oid)[:8],
-                       new_oid=str(new_oid)[:8])
+        self._log.debug(
+            "Reference updated",
+            ref=refname,
+            old_oid=str(old_oid)[:8],
+            new_oid=str(new_oid)[:8],
+        )
 
     def transfer_progress(self, stats) -> None:
         """Log transfer progress - removed TransferProgress type hint to avoid import issues."""
-        if hasattr(stats, 'total_objects') and hasattr(stats, 'indexed_objects'):
+        if hasattr(stats, "total_objects") and hasattr(stats, "indexed_objects"):
             if stats.total_objects > 0:
                 progress = (stats.indexed_objects / stats.total_objects) * 100
-                self._log.debug("Transfer progress",
-                               progress=f"{progress:.1f}%",
-                               indexed=stats.indexed_objects,
-                               total=stats.total_objects)
+                self._log.debug(
+                    "Transfer progress",
+                    progress=f"{progress:.1f}%",
+                    indexed=stats.indexed_objects,
+                    total=stats.total_objects,
+                )
+
+
 # 🔐🚀

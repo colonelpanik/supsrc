@@ -18,11 +18,13 @@ log = structlog.get_logger("engines.git.runner")
 # Type alias for the runner
 Pygit2Runner: type = Callable[..., Coroutine[Any, Any, Any]]
 
+
 def run_pygit2_async(func: Callable[..., Any]) -> Pygit2Runner:
     """
     Decorator or wrapper to run a blocking pygit2 function
     in the default executor thread pool.
     """
+
     @wraps(func)
     async def wrapper(*args: Any, **kwargs: Any) -> Any:
         loop = asyncio.get_running_loop()
@@ -40,13 +42,21 @@ def run_pygit2_async(func: Callable[..., Any]) -> Pygit2Runner:
             return result
         except Exception as e:
             # Log the exception but re-raise it so the caller can handle it
-            log.error("Error executing pygit2 function in thread", func_name=func.__name__, error=str(e), exc_info=True)
-            raise # Re-raise the original exception
+            log.error(
+                "Error executing pygit2 function in thread",
+                func_name=func.__name__,
+                error=str(e),
+                exc_info=True,
+            )
+            raise  # Re-raise the original exception
+
     return wrapper
+
 
 # Example of wrapping a pygit2 function directly if preferred over decoration
 async def repo_discover_async(path: str) -> str | None:
     """Async wrapper for pygit2.discover_repository."""
-    return await run_pygit2_async(pygit2.discover_repository)(path) # type: ignore
+    return await run_pygit2_async(pygit2.discover_repository)(path)  # type: ignore
+
 
 # 🔼⚙️

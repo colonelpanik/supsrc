@@ -58,9 +58,13 @@ def minimal_config(temp_git_repo: Path) -> SupsrcConfig:
                 path=repo_path,
                 enabled=True,
                 rule=InactivityRuleConfig(period=30),
-                repository={"type": "supsrc.engines.git", "branch": "main"}  # Using main as default
+                repository={
+                    "type": "supsrc.engines.git",
+                    "branch": "main",
+                },  # Using main as default
             )
         },
     )
+
 
 # 🧪🔧

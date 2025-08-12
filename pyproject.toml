@@ -4,7 +4,7 @@
 
 [project]
 name = "supsrc"
-version = "0.1.3"
+version = "0.2.0"
 description = "Automated Git commit/push utility based on filesystem events and rules."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -46,19 +46,15 @@ dependencies = [
     "sshconf>=0.2.7",
     "rich>=13.7.1",
     "aioconsole>=0.8.1",
+    "wrkenv @ {root:uri}/../wrkenv", # For environment management and bootstrap generation
 ]
 
 [project.urls]
-Homepage = "https://projects.provide.io/supsrc"
+Homepage = "https://github.com/provide-io/supsrc"
 Repository = "https://github.com/provide-io/supsrc"
-Issues = "https://code.provide.io/supsrc/issues"
+Issues = "https://github.com/provide-io/supsrc/issues"
 
-# --- Optional Features (Extras) ---
-[project.optional-dependencies]
-tui = [
-    "rich>=14.0.0",   # Required for TUI and optional pretty-printing
-    "textual>=0.70.0", # Use a recent stable version
-]
+[dependency-groups]
 dev = [
     # Core Dev Tools
     "hatch>=1.14.1",
@@ -75,6 +71,13 @@ dev = [
     "behave>=1.2.6",
     # Include TUI deps for testing TUI features
     "supsrc[tui]",
+    "pytest-xdist>=3.8.0",
+]
+
+# --- Optional Features (Extras) ---
+[project.optional-dependencies]
+tui = [
+    "textual>=0.70.0", # Use a recent stable version
 ]
 
 [project.scripts]
@@ -90,6 +93,10 @@ build-backend = "hatchling.build"
 [tool.hatch.version]
 path = "src/supsrc/__init__.py" # Ensure __version__ is defined here
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
+
 #[tool.hatch.metadata.hooks.custom] # Example: Add copyright year automatically
 #path = "hatch_hooks.py" # Requires creating this file
 
@@ -102,30 +109,30 @@ description = "Default development environment (includes dev & tui extras)"
 # dependencies = []
 skip-install = false
 dev-mode = true # Ensures editable install by default in hatch shell
-# scripts = {
+# scripts = { 
 #     # --- Quality Checks ---
-#     check = "hatch run lint && hatch run typecheck && hatch run test", \
-#     lint = "ruff check . && ruff format . --check", \
-#     typecheck = "pyre check", \
+#     check = "hatch run lint && hatch run typecheck && hatch run test", \ 
+#     lint = "ruff check . && ruff format . --check", \ 
+#     typecheck = "pyre check", \ 
 #     # --- Formatting ---
-#     fmt = "ruff format . && ruff check . --fix", \
+#     fmt = "ruff format . && ruff check . --fix", \ 
 #     # --- Testing ---
-#     test = "pytest tests/ {args}", \
-#     cov = "pytest --cov=src/supsrc --cov-report=term-missing --cov-report=xml --cov-report=html tests/ {args}", \
-#     cov-no-fail = "cov --cov-fail-under=0 {args}", \
+#     test = "pytest tests/ {args}", \ 
+#     cov = "pytest --cov=src/supsrc --cov-report=term-missing --cov-report=xml --cov-report=html tests/ {args}", \ 
+#     cov-no-fail = "cov --cov-fail-under=0 {args}", \ 
 #     # --- Misc ---
-#     clean = "rm -rf .pyre/ .pytest_cache/ .ruff_cache/ build/ dist/ *.egg-info/ coverage.xml coverage_html_report/", \
-#     build = "hatch build", \
-#     all = "hatch run clean && hatch run check && hatch run cov", \
+#     clean = "rm -rf .pyre/ .pytest_cache/ .ruff_cache/ build/ dist/ *.egg-info/ coverage.xml coverage_html_report/", \ 
+#     build = "hatch build", \ 
+#     all = "hatch run clean && hatch run check && hatch run cov", \ 
 # }
 
 # Example separate environment for linting only (faster if needed)
 [tool.hatch.envs.lint]
 detached = true
 dependencies = ["ruff"]
-# scripts = {
-#     lint = "ruff check .. && ruff format .. --check", \
-#     fmt = "ruff format .. && ruff check .. --fix", \
+# scripts = { 
+#     lint = "ruff check .. && ruff format .. --check", \ 
+#     fmt = "ruff format .. && ruff check .. --fix", \ 
 # }
 
 # Example separate environment for type checking only
@@ -138,7 +145,7 @@ scripts = { check = "pyre check .." }
 # Ruff Linter/Formatter Configuration                                         #
 # --------------------------------------------------------------------------- #
 [tool.ruff]
-line-length = 88
+line-length = 100
 target-version = "py311" # Match requires-python lower bound
 
 [tool.ruff.lint]
@@ -213,11 +220,13 @@ source_directories = ["src", "tests"]
 # --------------------------------------------------------------------------- #
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = "-ra -q --strict-markers --import-mode=importlib" # Show summary, quiet, error on markers, use importlib
+addopts = "-ra -q --strict-markers --import-mode=importlib"
 testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
+log_cli = true
+log_cli_level = "DEBUG"
 filterwarnings = [
     "error", # Fail tests on warnings
     "ignore::DeprecationWarning:pygit2.*:", # Ignore specific deprecations if noisy
@@ -228,6 +237,7 @@ markers = [
     "tui: marks tests related to the TUI feature",
 ]
 asyncio_mode = "auto" # Required for pytest-asyncio
+asyncio_default_fixture_loop_scope = "function" # Prevent deprecation warning
 
 
 # --------------------------------------------------------------------------- #
@@ -254,7 +264,7 @@ exclude_lines = [
     "pragma: no cover",
     # Standard typing/protocol boilerplate
     "if TYPE_CHECKING:",
-    "\\.\\.\\.", # Ellipsis placeholder
+    "\\\\.\\.\\.\\.", # Ellipsis placeholder
     "@(abc\\.)?abstractmethod",
     "pass",
     # Common debugging/error handling
@@ -272,16 +282,3 @@ title = "Supsrc Coverage Report"
 
 [tool.coverage.xml]
 output = "coverage.xml"
-
-[dependency-groups]
-dev = [
-    "hypothesis>=6.131.9",
-    "pytest-asyncio>=0.26.0",
-    "pytest-cov>=6.1.1",
-    "pytest-xdist>=3.6.1",
-    "ruff>=0.11.8",
-    "ty>=0.0.1a6",
-    "uv>=0.7.2",
-]
-
-# 🔼⚙️
