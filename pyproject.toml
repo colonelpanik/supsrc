@@ -78,10 +78,6 @@ dev = [
 tui = [
     "textual>=0.70.0", # Use a recent stable version
 ]
-dev = [
-    "pytest>=8.3.5",
-    "pytest-asyncio>=0.26.0",
-]
 
 [project.scripts]
 supsrc = "supsrc.cli.main:cli"
