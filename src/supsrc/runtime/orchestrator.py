@@ -35,7 +35,7 @@ from supsrc.protocols import (
     StageResult,
 )
 from supsrc.rules import check_trigger_condition
-from supsrc.state import RepositoryState, RepositoryStatus, STATUS_EMOJI_MAP
+from supsrc.state import STATUS_EMOJI_MAP, RepositoryState, RepositoryStatus
 
 # --- Supsrc Imports ---
 from supsrc.telemetry import StructLogger
@@ -127,19 +127,16 @@ class WatchOrchestrator:
             formatted_message = message
             if repo_id:
                 # Using a consistent repo_id style for console messages
-                if self.console:
-                    formatted_message = f"[bold blue]{repo_id}[/]: {formatted_message}"
-                else:
-                    formatted_message = f"[{repo_id}] {formatted_message}"
+                formatted_message = f"[bold blue]{repo_id}[/]: {formatted_message}" if self.console else f"[{repo_id}] {formatted_message}"
             if emoji:
                 formatted_message = f"{emoji} {formatted_message}"
-            
+
             if self.console:
                 # Use Rich console if available
                 self.console.print(formatted_message, style=style if style else None)
             else:
                 # Fall back to simple print for tail command
-                print(formatted_message)
+                print(formatted_message)  # noqa: T201
 
     def _post_tui_log(self, repo_id: str | None, level: str, message: str) -> None:
         """Safely posts a log message to the TUI if active."""
@@ -182,18 +179,18 @@ class WatchOrchestrator:
         """
         refresh_log = self._log.bind(repo_id=repo_id)
         refresh_log.debug("Refreshing file statistics")
-        
+
         repo_state = self.repo_states.get(repo_id)
         repo_config = self.config.repositories.get(repo_id) if self.config else None
         repo_engine = self.repo_engines.get(repo_id)
-        
+
         if not repo_state or not repo_config or not repo_engine:
             return
-            
+
         try:
             # Add a small delay to batch multiple rapid changes
             await asyncio.sleep(1.0)
-            
+
             # Get current status
             status_result = await repo_engine.get_status(
                 repo_state,
@@ -201,41 +198,41 @@ class WatchOrchestrator:
                 self.config.global_config if self.config else {},
                 repo_config.path
             )
-            
-            if status_result.success:
+
+            if ((status_result.success) and
                 # Only update if values have changed
-                if (repo_state.changed_files != status_result.changed_files or
-                    repo_state.added_files != status_result.added_files or
-                    repo_state.deleted_files != status_result.deleted_files or
-                    repo_state.modified_files != status_result.modified_files):
-                    
-                    repo_state.changed_files = status_result.changed_files
-                    repo_state.added_files = status_result.added_files
-                    repo_state.deleted_files = status_result.deleted_files
-                    repo_state.modified_files = status_result.modified_files
-                    repo_state.has_uncommitted_changes = not status_result.is_clean
-                    
-                    # If repository is now clean, cancel any inactivity timer and update status
-                    if status_result.is_clean and repo_state.inactivity_timer_handle:
-                        refresh_log.info("Repository is now clean, canceling inactivity timer")
-                        repo_state.cancel_inactivity_timer()
-                        repo_state.update_status(RepositoryStatus.IDLE)
-                        self._post_tui_log(
-                            repo_id,
-                            "INFO",
-                            "⏰ Timer cancelled - repository is clean"
-                        )
-                    
-                    self._last_stats_refresh[repo_id] = time.time()
-                    self._post_tui_state_update()
-                    
-                    refresh_log.debug(
-                        "File statistics updated",
-                        changed=repo_state.changed_files,
-                        added=repo_state.added_files,
-                        deleted=repo_state.deleted_files,
-                        modified=repo_state.modified_files
+                (repo_state.changed_files != status_result.changed_files or
+                repo_state.added_files != status_result.added_files or
+                repo_state.deleted_files != status_result.deleted_files or
+                repo_state.modified_files != status_result.modified_files)):
+
+                repo_state.changed_files = status_result.changed_files
+                repo_state.added_files = status_result.added_files
+                repo_state.deleted_files = status_result.deleted_filesl
+                repo_state.modified_files = status_result.modified_files
+                repo_state.has_uncommitted_changes = not status_result.is_clean
+
+                # If repository is now clean, cancel any inactivity timer and update status
+                if status_result.is_clean and repo_state.inactivity_timer_handle:
+                    refresh_log.info("Repository is now clean, canceling inactivity timer")
+                    repo_state.cancel_inactivity_timer()
+                    repo_state.update_status(RepositoryStatus.IDLE)
+                    self._post_tui_log(
+                        repo_id,
+                        "INFO",
+                        "⏰ Timer cancelled - repository is clean"
                     )
+
+                self._last_stats_refresh[repo_id] = time.time()
+                self._post_tui_state_update()
+
+                refresh_log.debug(
+                    "File statistics updated",
+                    changed=repo_state.changed_files,
+                    added=repo_state.added_files,
+                    deleted=repo_state.deleted_files,
+                    modified=repo_state.modified_files
+                )
         except Exception as e:
             refresh_log.debug("Error refreshing file statistics", error=str(e))
 
@@ -334,7 +331,7 @@ class WatchOrchestrator:
 
             if not status_result.success:
                 raise SupsrcError(f"Failed to get repository status: {status_result.message}")
-            
+
             # Update file statistics in repository state
             # Only update if values have actually changed to avoid UI flashing
             if (repo_state.total_files != status_result.total_files or
@@ -342,7 +339,7 @@ class WatchOrchestrator:
                 repo_state.added_files != status_result.added_files or
                 repo_state.deleted_files != status_result.deleted_files or
                 repo_state.modified_files != status_result.modified_files):
-                
+
                 repo_state.total_files = status_result.total_files
                 repo_state.changed_files = status_result.changed_files
                 repo_state.added_files = status_result.added_files
@@ -350,7 +347,7 @@ class WatchOrchestrator:
                 repo_state.modified_files = status_result.modified_files
                 repo_state.has_uncommitted_changes = not status_result.is_clean
                 repo_state.current_branch = status_result.current_branch
-                
+
                 # Update last refresh time
                 self._last_stats_refresh[repo_id] = time.time()
 
@@ -362,14 +359,14 @@ class WatchOrchestrator:
                     style="bold yellow on red",
                     emoji="🧊",
                 )
-                
+
                 # Auto-freeze the repository
                 repo_state.is_frozen = True
                 repo_state.freeze_reason = "Merge conflicts detected"
                 repo_state.display_status_emoji = "🧊"
                 repo_state.action_description = "Frozen (conflicts)"
                 repo_state.update_status(RepositoryStatus.ERROR, "Frozen: Merge conflicts")
-                
+
                 # Send macOS notification if available
                 try:
                     import subprocess
@@ -379,7 +376,7 @@ class WatchOrchestrator:
                     ], check=False)
                 except Exception:
                     pass  # Ignore notification errors
-                    
+
                 self._post_tui_state_update()
                 return
 
@@ -461,7 +458,7 @@ class WatchOrchestrator:
             commit_retries = 3
             commit_attempt = 0
             commit_result: CommitResult | None = None
-            
+
             while commit_attempt < commit_retries:
                 try:
                     commit_result = await repo_engine.perform_commit(
@@ -475,7 +472,7 @@ class WatchOrchestrator:
                 except Exception as e:
                     commit_attempt += 1
                     error_msg = str(e)
-                    
+
                     # Check if this is a race condition error
                     if "current tip is not the first parent" in error_msg and commit_attempt < commit_retries:
                         callback_log.warning(
@@ -495,10 +492,10 @@ class WatchOrchestrator:
                     else:
                         # Not a race condition or out of retries
                         raise
-            
+
             if commit_result is None:
                 raise SupsrcError("Failed to commit after multiple attempts")
-                
+
             if not commit_result.success:
                 raise SupsrcError(f"Commit failed: {commit_result.message}")
 
@@ -528,7 +525,6 @@ class WatchOrchestrator:
                 repo_state.action_description = f"Committed: {repo_state.last_commit_short_hash}"
                 repo_state.display_status_emoji = "✅"
                 # Update the commit timestamp to now since we just made a commit
-                from datetime import datetime, UTC
                 repo_state.last_commit_timestamp = datetime.now(UTC)
                 self._console_message(
                     f"Commit complete. Hash: {repo_state.last_commit_short_hash}",
@@ -669,7 +665,7 @@ class WatchOrchestrator:
                 try:
                     await asyncio.wait_for(self.shutdown_event.wait(), timeout=0.5)
                     break
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
 
             consumer_log.debug("Consumer loop active, waiting for event...")
@@ -740,7 +736,7 @@ class WatchOrchestrator:
                         repo_state.record_change()
                         event_log = event_log.bind(save_count=repo_state.save_count, status=repo_state.status.name)
 
-                        event_descriptions = {"created": ("added", "➕"), "modified": ("modified", "✏️"), "deleted": ("deleted", "➖"), "moved": ("moved", "➡️")}
+                        event_descriptions = {"created": ("added", "➕"), "modified": ("modified", "✏️"), "deleted": ("deleted", "➖"), "moved": ("moved", "➡️")}  # noqa: RUF001
                         event_desc, event_emoji = event_descriptions.get(event.event_type, ("changed", "📝"))
 
                         display_msg = f"File {event_desc}: {event.src_path.name}"
@@ -1403,7 +1399,7 @@ class WatchOrchestrator:
             # Restart the monitor service if it was suspended
             if self.monitor_service and self.config:
                 self._log.info("Restarting monitor service...")
-                asyncio.create_task(self._restart_monitor_service())
+                asyncio.create_task(self._restart_monitor_service())  # noqa: RUF006
             for repo_state in self.repo_states.values():
                 repo_state.is_stopped = False # Unstop individual repos
         else:
@@ -1411,61 +1407,28 @@ class WatchOrchestrator:
             for repo_state in self.repo_states.values():
                 repo_state.is_paused = False # Unpause individual repos
         self._post_tui_state_update()
-    
+
     def toggle_repository_pause(self, repo_id: str) -> bool:
         """Toggle pause state for an individual repository."""
         repo_state = self.repo_states.get(repo_id)
         if not repo_state:
             return False
-            
+
         repo_state.is_paused = not repo_state.is_paused
-        
+
         if repo_state.is_paused:
             repo_state.pause_until = datetime.now(UTC) + timedelta(hours=1)  # Default 1 hour pause
-            repo_state.display_status_emoji = "⏸️"
-            self._log.info(f"Repository {repo_id} PAUSED")
-            self._console_message(
-                f"Repository {repo_id} paused for 1 hour",
-                repo_id=repo_id,
-                style="yellow bold",
-                emoji="⏸️",
-            )
-        else:
-            repo_state.pause_until = None
-            # Restore normal emoji based on status
-            repo_state.display_status_emoji = STATUS_EMOJI_MAP.get(repo_state.status, "❓")
-            self._log.info(f"Repository {repo_id} RESUMED")
-            self._console_message(
-                f"Repository {repo_id} resumed",
-                repo_id=repo_id,
-                style="green bold",
-                emoji="▶️",
-            )
-            
-        self._post_tui_state_update()
-        return True
-    
-    def toggle_repository_pause(self, repo_id: str) -> bool:
-        """Toggle pause state for an individual repository."""
-        repo_state = self.repo_states.get(repo_id)
-        if not repo_state:
-            return False
-            
-        repo_state.is_paused = not repo_state.is_paused
-        
-        if repo_state.is_paused:
-            repo_state.pause_until = datetime.now(UTC) + timedelta(hours=1)  # Default 1 hour pause
-            
+
             # Cancel any existing timer when pausing
             if repo_state.inactivity_timer_handle:
                 self._log.debug(f"Canceling inactivity timer for paused repository {repo_id}")
                 repo_state.cancel_inactivity_timer()
-            
+
             # Force emoji update
             old_emoji = repo_state.display_status_emoji
             repo_state._update_display_emoji()  # Update the emoji
             new_emoji = repo_state.display_status_emoji
-            
+
             self._log.info(f"Repository {repo_id} PAUSED - emoji: '{old_emoji}' -> '{new_emoji}'")
             self._console_message(
                 f"Repository {repo_id} paused for 1 hour",
@@ -1488,14 +1451,14 @@ class WatchOrchestrator:
                 style="green bold",
                 emoji="▶️",
             )
-            
+
             # If there are uncommitted changes, restart the inactivity timer
             if repo_state.has_uncommitted_changes and self.config:
                 repo_config = self.config.repositories.get(repo_id)
                 if repo_config and isinstance(repo_config.rule, InactivityRuleConfig):
                     delay = repo_config.rule.period.total_seconds()
                     self._log.debug(f"Restarting inactivity timer for {repo_id} with {delay}s delay")
-                    
+
                     # Schedule the timer
                     current_loop = asyncio.get_running_loop()
                     timer_handle = current_loop.call_later(
@@ -1507,7 +1470,7 @@ class WatchOrchestrator:
                     repo_state.set_inactivity_timer(timer_handle, int(delay))
                     repo_state.display_status_emoji = "😴"
                     repo_state.rule_dynamic_indicator = f"({int(delay)}s left)"
-                    
+
                     self._post_tui_log(
                         repo_id,
                         "INFO",
@@ -1525,10 +1488,10 @@ class WatchOrchestrator:
                     "INFO",
                     "▶️ Repository resumed - commits enabled"
                 )
-            
+
         self._post_tui_state_update()
         return True
-    
+
     async def toggle_repository_stop(self, repo_id: str) -> bool:
         """Toggle stop state for an individual repository (stops monitoring)."""
         repo_state = self.repo_states.get(repo_id)
@@ -1609,7 +1572,7 @@ class WatchOrchestrator:
                 repo_state.modified_files = status_result.modified_files
                 repo_state.has_uncommitted_changes = not status_result.is_clean
                 repo_state.current_branch = status_result.current_branch
-                
+
                 # Update last refresh time
                 self._last_stats_refresh[repo_id] = time.time()
                 self._post_tui_state_update()
@@ -1641,7 +1604,7 @@ class WatchOrchestrator:
                 self._log.error(f"Failed to unstop {repo_id} during resume.")
                 return False
             self._log.info(f"Repository {repo_id} unstopped.")
-        
+
         self._post_tui_state_update()
         return True
 
@@ -1657,14 +1620,14 @@ class WatchOrchestrator:
         repo_state = self.repo_states.get(repo_id)
         if not repo_state or not repo_state.is_frozen:
             return False
-            
+
         repo_state.is_frozen = False
         repo_state.freeze_reason = None
         repo_state.display_status_emoji = STATUS_EMOJI_MAP.get(repo_state.status, "❓")
-        
+
         if repo_state.status == RepositoryStatus.ERROR:
             repo_state.update_status(RepositoryStatus.IDLE)
-            
+
         self._log.info(f"Repository {repo_id} UNFROZEN")
         self._console_message(
             f"Repository {repo_id} unfrozen",
@@ -1672,7 +1635,7 @@ class WatchOrchestrator:
             style="green bold",
             emoji="✅",
         )
-        
+
         self._post_tui_state_update()
         return True
 
@@ -1773,9 +1736,9 @@ class WatchOrchestrator:
         except Exception as e:
             # Rollback on error
             reload_log.error("Config reload failed, rolling back", error=str(e))
-            if 'old_config' in locals():
+            if "old_config" in locals():
                 self.config = old_config
-            if 'old_monitor_service' in locals():
+            if "old_monitor_service" in locals():
                 self.monitor_service = old_monitor_service
 
             self._console_message(f"❌ Config reload failed: {e}", style="red bold", emoji="⚠️")

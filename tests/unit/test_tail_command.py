@@ -20,145 +20,114 @@ class TestTailCommand:
         """Test that tail command exists in CLI."""
         runner = CliRunner()
         result = runner.invoke(cli, ["--help"])
-
         assert result.exit_code == 0
         assert "tail" in result.output
-        assert (
-            "Follow repository changes" in result.output
-            or "Tail repository changes" in result.output
-        )
+        assert "Follow repository changes" in result.output
 
     def test_tail_help(self) -> None:
         """Test tail command help."""
         runner = CliRunner()
         result = runner.invoke(cli, ["tail", "--help"])
-
         assert result.exit_code == 0
         assert "tail" in result.output
         assert "--config-path" in result.output
-        # Should NOT have --tui flag
         assert "--tui" not in result.output
 
+    @patch("supsrc.cli.tail_cmds._run_headless_orchestrator")
     @patch("supsrc.cli.tail_cmds.WatchOrchestrator")
     def test_tail_basic_operation(
-        self, mock_orchestrator_class: Mock, tmp_path: Path
+        self, mock_orchestrator_class: Mock, mock_runner: Mock, tmp_path: Path
     ) -> None:
         """Test tail command basic operation."""
-        # Mock orchestrator instance and its run method
-        mock_orchestrator = Mock()
-        mock_orchestrator.run = Mock()
-        mock_orchestrator_class.return_value = mock_orchestrator
-
+        mock_orchestrator_instance = mock_orchestrator_class.return_value
+        mock_runner.return_value = 0  # Simulate successful run
         config_file = tmp_path / "test.conf"
-        config_file.write_text("""
-        [repositories.test]
-        path = "/tmp/test"
-        enabled = true
-
-        [repositories.test.rule]
-        type = "supsrc.rules.inactivity"
-        period = "30s"
-
-        [repositories.test.repository]
-        type = "supsrc.engines.git"
-        """)
-
+        config_file.write_text("[repositories.test]\npath = '/tmp/test'")
         runner = CliRunner()
 
-        # Mock the async event loop to prevent hanging
-        with patch("asyncio.get_event_loop_policy") as mock_policy:
-            mock_loop = Mock()
-            mock_policy.return_value.get_event_loop.return_value = mock_loop
-            mock_loop.is_closed.return_value = False
-            mock_loop.run_until_complete.return_value = None
+        result = runner.invoke(cli, ["tail", "--config-path", str(config_file)])
 
-            runner.invoke(cli, ["tail", "--config-path", str(config_file)])
-
-        # Assert that WatchOrchestrator was instantiated correctly
+        # Asserting the result's exit code is the correct way to test for success.
+        assert result.exit_code == 0
         mock_orchestrator_class.assert_called_once()
         args, kwargs = mock_orchestrator_class.call_args
         assert kwargs["config_path"] == config_file
         assert kwargs["app"] is None
         assert kwargs["console"] is None
-
-        # Assert the run method on the instance was called
-        mock_orchestrator.run.assert_called_once()
+        mock_runner.assert_called_once_with(mock_orchestrator_instance)
 
     def test_tail_with_invalid_config(self) -> None:
         """Test tail command with invalid config path."""
         runner = CliRunner()
         result = runner.invoke(cli, ["tail", "--config-path", "/nonexistent/config.conf"])
-
         assert result.exit_code != 0
         assert "Error" in result.output or "does not exist" in result.output
 
+    @patch("supsrc.cli.tail_cmds._run_headless_orchestrator")
     @patch("supsrc.cli.tail_cmds.WatchOrchestrator")
-    def test_tail_with_env_config(self, mock_orchestrator_class: Mock, tmp_path: Path) -> None:
+    def test_tail_with_env_config(
+        self, mock_orchestrator_class: Mock, mock_runner: Mock, tmp_path: Path
+    ) -> None:
         """Test tail command with config from environment variable."""
+        mock_runner.return_value = 0
         config_file = tmp_path / "env_test.conf"
-        config_file.write_text("""
-        [repositories.env-test]
-        path = "/tmp/env-test"
-        enabled = true
-
-        [repositories.env-test.rule]
-        type = "supsrc.rules.manual"
-
-        [repositories.env-test.repository]
-        type = "supsrc.engines.git"
-        """)
-
+        config_file.write_text("[repositories.env-test]\npath = '/tmp/env-test'")
         runner = CliRunner()
 
-        with patch.dict("os.environ", {"SUPSRC_CONF": str(config_file)}), patch("asyncio.get_event_loop_policy"):
-            runner.invoke(cli, ["tail"])
+        with patch.dict("os.environ", {"SUPSRC_CONF": str(config_file)}):
+            result = runner.invoke(cli, ["tail"])
 
-            # Assert orchestrator was instantiated with the correct path from env var
-            mock_orchestrator_class.assert_called_once()
-            args, kwargs = mock_orchestrator_class.call_args
-            assert kwargs["config_path"] == config_file
+        assert result.exit_code == 0
+        mock_orchestrator_class.assert_called_once()
+        args, kwargs = mock_orchestrator_class.call_args
+        assert kwargs["config_path"] == config_file
 
-    @patch("structlog.get_logger")
-    def test_tail_logging_setup(self, mock_get_logger: Mock, tmp_path: Path) -> None:
+    @patch("supsrc.cli.tail_cmds._run_headless_orchestrator")
+    @patch("supsrc.cli.utils.core_setup_logging")
+    def test_tail_logging_setup(
+        self, mock_setup_logging: Mock, mock_runner: Mock, tmp_path: Path
+    ) -> None:
         """Test that tail command sets up logging correctly."""
-        mock_logger = Mock()
-        mock_get_logger.return_value = mock_logger
-
         config_file = tmp_path / "test.conf"
         config_file.write_text("[repositories]")
-
         runner = CliRunner()
 
-        with patch("supsrc.cli.tail_cmds.WatchOrchestrator"), patch("asyncio.get_event_loop_policy"):
-            runner.invoke(cli, ["tail", "--config-path", str(config_file)])
+        runner.invoke(cli, ["tail", "--log-level", "DEBUG", "--config-path", str(config_file)])
 
-        # Assert that a log message was emitted during setup
-        mock_logger.info.assert_called()
+        mock_setup_logging.assert_called()
+        call_args, call_kwargs = mock_setup_logging.call_args
+        assert call_kwargs["level"] == 10  # DEBUG
 
-    def test_tail_interrupt_handling(self, tmp_path: Path) -> None:
-        """Test tail command handles keyboard interrupt gracefully."""
+    @patch("supsrc.cli.tail_cmds._run_headless_orchestrator")
+    def test_tail_runner_returns_error_code(
+        self, mock_runner: Mock, tmp_path: Path
+    ) -> None:
+        """Test that a non-zero exit code from the runner is propagated."""
+        mock_runner.return_value = 130  # Simulate exit code from interrupt
         config_file = tmp_path / "test.conf"
         config_file.write_text("[repositories]")
-
         runner = CliRunner()
 
-        with patch("supsrc.cli.tail_cmds.WatchOrchestrator") as mock_orchestrator_class:
-            mock_orchestrator = Mock()
-            # Simulate the orchestrator's run method being interrupted
-            mock_orchestrator.run.side_effect = KeyboardInterrupt()
-            mock_orchestrator_class.return_value = mock_orchestrator
+        result = runner.invoke(cli, ["tail", "--config-path", str(config_file)])
 
-            # Mock the event loop since the real one isn't running in the test
-            with patch("asyncio.get_event_loop_policy") as mock_policy:
-                mock_loop = Mock()
-                mock_policy.return_value.get_event_loop.return_value = mock_loop
-                # The run_until_complete call will propagate the KeyboardInterrupt
-                mock_loop.run_until_complete.side_effect = KeyboardInterrupt()
+        mock_runner.assert_called_once()
+        # The CliRunner catches the sys.exit and reports the code here. This is the robust way to test it.
+        assert result.exit_code == 130
 
-                result = runner.invoke(cli, ["tail", "--config-path", str(config_file)])
+    @patch("supsrc.cli.tail_cmds._run_headless_orchestrator")
+    def test_tail_runner_raises_keyboard_interrupt(
+        self, mock_runner: Mock, tmp_path: Path
+    ) -> None:
+        """Test that tail command handles KeyboardInterrupt from the runner."""
+        mock_runner.side_effect = KeyboardInterrupt()
+        config_file = tmp_path / "test.conf"
+        config_file.write_text("[repositories]")
+        runner = CliRunner()
 
-        # Should handle interrupt gracefully with the correct message
-        assert "initiating graceful shutdown" in result.output.lower()
+        # The runner will catch the exception and store it in the result object.
+        result = runner.invoke(cli, ["tail", "--config-path", str(config_file)])
 
-
-# 🧪🏃‍♂️
+        # Click translates KeyboardInterrupt into a non-zero exit.
+        # It does NOT store the exception in result.exception for this specific case.
+        # Instead, it aborts execution and returns an exit code of 1.
+        assert result.exit_code == 1
