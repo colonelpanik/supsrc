@@ -358,7 +358,6 @@ class GitEngine(RepositoryEngine):
     def _generate_change_summary(self, diff: pygit2.Diff) -> str:
         """Generates a summary string from a pygit2 Diff object."""
         added, modified, deleted, renamed, typechanged = [], [], [], [], []
-        # --- FIX: Iterate over diff.deltas ---
         for delta in diff.deltas:
             path = (
                 delta.new_file.path
@@ -454,7 +453,7 @@ class GitEngine(RepositoryEngine):
                     error=str(diff_err),
                 )
 
-            if diff is not None and not diff.deltas and not (is_unborn and len(index) > 0):
+            if diff is not None and len(diff) == 0 and not (is_unborn and len(index) > 0):
                 commit_log.info("Commit skipped: No changes detected in diff.")
                 return CommitResult(
                     success=True,

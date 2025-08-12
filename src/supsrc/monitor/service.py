@@ -77,7 +77,6 @@ class MonitoringService:
             )
 
         self._logger.info("Adding repository to monitor", repo_id=repo_id, path=str(repo_path))
-        # --- FIX: Pass the loop to the handler ---
         handler = SupsrcEventHandler(
             repo_id=repo_id,
             repo_path=repo_path,

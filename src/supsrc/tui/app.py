@@ -117,22 +117,19 @@ class TimerManager:
             return False
 
         timer = self._timers[name]
+        success = True
         try:
             # Check if the timer is active by inspecting its internal handle
             if hasattr(timer, "_Timer__handle") and timer._Timer__handle is not None:
                 timer.stop()
-            # No need to check is_cancelled, stop() should be idempotent or handle internal state.
-            # Textual's stop() method on Timer sets _Timer__handle to None.
         except Exception as e:
             self._logger.error("Error stopping timer", name=name, error=str(e))
-            return False
+            success = False
         finally:
-            if (
-                name in self._timers
-            ):  # Re-check as timer.stop() might have already removed it via a callback
+            if name in self._timers:
                 del self._timers[name]
             self._logger.debug("Timer stopped or already inactive", name=name)
-            return True
+        return success
 
     def stop_all_timers(self) -> None:
         """Stop all managed timers."""
@@ -707,10 +704,6 @@ class SupsrcTuiApp(App):
         
         # Exit immediately - Textual will handle terminal restoration
         self.exit(0)
-        
-        # Force immediate exit without waiting for cleanup
-        import os
-        os._exit(0)
 
     # Message Handlers
     def on_state_update(self, message: StateUpdate) -> None:

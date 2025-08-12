@@ -197,6 +197,10 @@ def load_config(config_path: Path) -> SupsrcConfig:
         raise ConfigParsingError(str(e), path=str(config_path), details=e) from e
 
     try:
+        if "global" in toml_data:
+            toml_data["global_config"] = toml_data.pop("global")
+        # -------------------------------------------------------------
+
         log.debug("Structuring TOML data...")
         log.debug(f"TOML data: {toml_data}")
         # Initial structure from TOML + attrs defaults
@@ -206,21 +210,8 @@ def load_config(config_path: Path) -> SupsrcConfig:
         log.debug("Initial structuring complete.")
 
         # --- Apply Environment Variable Overrides for Global Config ---
-        # (Keep this section if you retain global defaults that can be overridden by env vars)
         global_config = config_object.global_config
         global_overrides: dict[str, Any] = {}
-
-        # Example: Override log_level (though CLI already does this with higher precedence)
-        # env_log_level = os.getenv('SUPSRC_GLOBAL_LOG_LEVEL') # Use a different name if needed
-        # if env_log_level is not None:
-        #     try:
-        #         # Validate the level from env var
-        #         _validate_log_level(None, None, env_log_level) # Use validator
-        #         if env_log_level.upper() != global_config.log_level.upper():
-        #              log.debug("Applying global.log_level override from env var", value=env_log_level)
-        #              global_overrides['log_level'] = env_log_level.upper()
-        #     except ValueError as val_err:
-        #          log.warning("Invalid log level from environment variable ignored", env_var='SUPSRC_GLOBAL_LOG_LEVEL', value=env_log_level, error=str(val_err))
 
         # Apply overrides if any were found
         if global_overrides:
@@ -314,6 +305,5 @@ def load_config(config_path: Path) -> SupsrcConfig:
         ) from e
     finally:
         _CURRENT_CONFIG_PATH_CONTEXT = None
-
 
 # 🔼⚙️

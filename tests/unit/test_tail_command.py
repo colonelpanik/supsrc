@@ -11,7 +11,6 @@ from unittest.mock import Mock, patch
 from click.testing import CliRunner
 
 from supsrc.cli.main import cli
-from supsrc.config.loader import load_config
 
 
 class TestTailCommand:
@@ -41,16 +40,11 @@ class TestTailCommand:
         assert "--tui" not in result.output
 
     @patch("supsrc.cli.tail_cmds.WatchOrchestrator")
-    @patch("supsrc.config.loader.load_config")
     def test_tail_basic_operation(
-        self, mock_load_config: Mock, mock_orchestrator_class: Mock, tmp_path: Path
+        self, mock_orchestrator_class: Mock, tmp_path: Path
     ) -> None:
         """Test tail command basic operation."""
-        # Mock configuration
-        mock_config = Mock()
-        mock_load_config.return_value = mock_config
-
-        # Mock orchestrator
+        # Mock orchestrator instance and its run method
         mock_orchestrator = Mock()
         mock_orchestrator.run = Mock()
         mock_orchestrator_class.return_value = mock_orchestrator
@@ -80,9 +74,15 @@ class TestTailCommand:
 
             runner.invoke(cli, ["tail", "--config-path", str(config_file)])
 
-        # Should load config and create orchestrator
-        mock_load_config.assert_called_once()
-        mock_orchestrator_class.assert_called_once_with(mock_config, is_tui=False)
+        # Assert that WatchOrchestrator was instantiated correctly
+        mock_orchestrator_class.assert_called_once()
+        args, kwargs = mock_orchestrator_class.call_args
+        assert kwargs["config_path"] == config_file
+        assert kwargs["app"] is None
+        assert kwargs["console"] is None
+
+        # Assert the run method on the instance was called
+        mock_orchestrator.run.assert_called_once()
 
     def test_tail_with_invalid_config(self) -> None:
         """Test tail command with invalid config path."""
@@ -92,7 +92,8 @@ class TestTailCommand:
         assert result.exit_code != 0
         assert "Error" in result.output or "does not exist" in result.output
 
-    def test_tail_with_env_config(self, tmp_path: Path) -> None:
+    @patch("supsrc.cli.tail_cmds.WatchOrchestrator")
+    def test_tail_with_env_config(self, mock_orchestrator_class: Mock, tmp_path: Path) -> None:
         """Test tail command with config from environment variable."""
         config_file = tmp_path / "env_test.conf"
         config_file.write_text("""
@@ -109,32 +110,29 @@ class TestTailCommand:
 
         runner = CliRunner()
 
-        # Test with SUPSRC_CONF environment variable
-        with patch.dict("os.environ", {"SUPSRC_CONF": str(config_file)}):
-            with patch("supsrc.cli.tail_cmds.WatchOrchestrator"):
-                with patch("supsrc.config.loader.load_config") as mock_load_config:
-                    mock_load_config.return_value = Mock()
+        with patch.dict("os.environ", {"SUPSRC_CONF": str(config_file)}), patch("asyncio.get_event_loop_policy"):
+            runner.invoke(cli, ["tail"])
 
-                    runner.invoke(cli, ["tail"])
+            # Assert orchestrator was instantiated with the correct path from env var
+            mock_orchestrator_class.assert_called_once()
+            args, kwargs = mock_orchestrator_class.call_args
+            assert kwargs["config_path"] == config_file
 
-                    # Should use config from env var
-                    assert mock_load_config.called
-
-    @patch("supsrc.telemetry.logger.base.log")
-    def test_tail_logging_setup(self, mock_logger: Mock, tmp_path: Path) -> None:
+    @patch("structlog.get_logger")
+    def test_tail_logging_setup(self, mock_get_logger: Mock, tmp_path: Path) -> None:
         """Test that tail command sets up logging correctly."""
+        mock_logger = Mock()
+        mock_get_logger.return_value = mock_logger
+
         config_file = tmp_path / "test.conf"
         config_file.write_text("[repositories]")
 
         runner = CliRunner()
 
-        with patch("supsrc.cli.tail_cmds.WatchOrchestrator"):
-            with patch("supsrc.config.loader.load_config") as mock_load_config:
-                mock_load_config.return_value = Mock()
+        with patch("supsrc.cli.tail_cmds.WatchOrchestrator"), patch("asyncio.get_event_loop_policy"):
+            runner.invoke(cli, ["tail", "--config-path", str(config_file)])
 
-                runner.invoke(cli, ["tail", "--config-path", str(config_file)])
-
-        # Should log startup message
+        # Assert that a log message was emitted during setup
         mock_logger.info.assert_called()
 
     def test_tail_interrupt_handling(self, tmp_path: Path) -> None:
@@ -146,16 +144,21 @@ class TestTailCommand:
 
         with patch("supsrc.cli.tail_cmds.WatchOrchestrator") as mock_orchestrator_class:
             mock_orchestrator = Mock()
+            # Simulate the orchestrator's run method being interrupted
             mock_orchestrator.run.side_effect = KeyboardInterrupt()
             mock_orchestrator_class.return_value = mock_orchestrator
 
-            with patch("supsrc.config.loader.load_config") as mock_load_config:
-                mock_load_config.return_value = Mock()
+            # Mock the event loop since the real one isn't running in the test
+            with patch("asyncio.get_event_loop_policy") as mock_policy:
+                mock_loop = Mock()
+                mock_policy.return_value.get_event_loop.return_value = mock_loop
+                # The run_until_complete call will propagate the KeyboardInterrupt
+                mock_loop.run_until_complete.side_effect = KeyboardInterrupt()
 
                 result = runner.invoke(cli, ["tail", "--config-path", str(config_file)])
 
-        # Should handle interrupt gracefully
-        assert "stopping" in result.output.lower() or "interrupted" in result.output.lower()
+        # Should handle interrupt gracefully with the correct message
+        assert "initiating graceful shutdown" in result.output.lower()
 
 
 # 🧪🏃‍♂️

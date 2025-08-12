@@ -46,7 +46,6 @@ dependencies = [
     "sshconf>=0.2.7",
     "rich>=13.7.1",
     "aioconsole>=0.8.1",
-    "wrkenv @ {root:uri}/../wrkenv", # For environment management and bootstrap generation
 ]
 
 [project.urls]
@@ -78,6 +77,10 @@ dev = [
 [project.optional-dependencies]
 tui = [
     "textual>=0.70.0", # Use a recent stable version
+]
+dev = [
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.26.0",
 ]
 
 [project.scripts]
