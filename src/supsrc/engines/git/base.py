@@ -241,10 +241,14 @@ class GitEngine(RepositoryEngine):
                         rel_path = str(Path(f).relative_to(repo_root))
                         index.add(rel_path)
                         staged_list.append(rel_path)
-                    except (ValueError, KeyError):
-                        # The previous implementation logged a warning here.
-                        # Consider how to handle/report files that fail to stage.
-                        pass
+                    except (ValueError, KeyError) as e:
+                        # Log a warning if a specific file fails to be staged.
+                        self._log.warning(
+                            "Could not stage specified file, it may not exist or be outside the repository.",
+                            file=str(f),
+                            error=str(e),
+                            repo_id=state.repo_id,
+                        )
             else:
                 index.add_all()
                 staged_list = [filepath for filepath, flags in repo.status().items() if flags != pygit2.GIT_STATUS_CURRENT]
