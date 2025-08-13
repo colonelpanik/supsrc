@@ -105,7 +105,6 @@ def setup_logging(
         )  # Add sort_keys for consistency
     else:
         # Use colored console renderer for development
-        # Removed 'padded_logger' from the format string implicitly
         # The default format string will likely use 'logger' and 'level' etc.
         final_renderer = structlog.dev.ConsoleRenderer(
             colors=True,  # Ensure colors are enabled

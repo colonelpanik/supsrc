@@ -1,12 +1,12 @@
-#
 # tests/conftest.py
-#
+
 """
 Enhanced pytest configuration and fixtures for comprehensive testing.
 """
 
 import shutil
 import subprocess
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -23,18 +23,16 @@ from supsrc.config.models import (
 def temp_git_repo(tmp_path: Path) -> Path:
     """Create a temporary Git repository for testing."""
     repo_path = tmp_path / "test_repo"
-    if repo_path.exists():  # Robustness: clean up if exists from a previous failed run
+    if repo_path.exists():
         shutil.rmtree(repo_path)
     repo_path.mkdir()
 
     try:
-        # Check if git is installed and accessible
         subprocess.run(["git", "--version"], check=True, capture_output=True, text=True)
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         pytest.skip(f"Git is not available or `git --version` failed: {e}")
 
     subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
-    # Configure dummy user for commits if not globally configured
     subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo_path, check=True)
     subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_path, check=True)
 
@@ -48,7 +46,6 @@ def temp_git_repo(tmp_path: Path) -> Path:
 def minimal_config(temp_git_repo: Path) -> SupsrcConfig:
     """Create a minimal configuration for testing."""
     repo_id = "test_repo_1"
-    # Ensure the path is a Path object for proper validation
     repo_path = temp_git_repo
 
     return SupsrcConfig(
@@ -57,14 +54,10 @@ def minimal_config(temp_git_repo: Path) -> SupsrcConfig:
             repo_id: RepositoryConfig(
                 path=repo_path,
                 enabled=True,
-                rule=InactivityRuleConfig(period=30),
-                repository={
-                    "type": "supsrc.engines.git",
-                    "branch": "main",
-                },  # Using main as default
+                rule=InactivityRuleConfig(period=timedelta(seconds=30)),
+                repository={"type": "supsrc.engines.git", "branch": "main"},
             )
         },
     )
-
 
 # 🧪🔧

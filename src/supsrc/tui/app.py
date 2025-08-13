@@ -1,5 +1,5 @@
 #
-# supsrc/tui/app.py
+# src/supsrc/tui/app.py
 #
 """
 Stabilized TUI application with improved layout and proper timer management.
@@ -17,7 +17,7 @@ from textual.reactive import var
 from textual.timer import Timer
 from textual.widgets import DataTable, Footer, Header
 from textual.widgets import Log as TextualLog
-from textual.worker import Worker
+from textual.worker import Worker, WorkerState
 
 from supsrc.runtime.orchestrator import WatchOrchestrator
 from supsrc.state import RepositoryStatus
@@ -325,10 +325,10 @@ class SupsrcTuiApp(App):
                 "Press [bold]Tab[/] to navigate, [bold]Enter[/] for details, [bold]Q[/] to quit"
             )
 
-            # Start orchestrator worker
+            # Start orchestrator worker in the main event loop
             log.info("Starting orchestrator worker...")
             self._worker = self.run_worker(
-                self._run_orchestrator, thread=True, group="orchestrator"
+                self._run_orchestrator, name="Orchestrator", group="orchestrator"
             )
 
             # Start shutdown check timer
@@ -361,17 +361,12 @@ class SupsrcTuiApp(App):
                 self._config_path, self._shutdown_event, app=self
             )
             await self._orchestrator.run()
-        except Exception as e:
-            log.exception("Orchestrator failed within TUI worker")
-            if not self._is_shutting_down:
-                self.call_later(
-                    self.post_message,
-                    LogMessageUpdate(None, "CRITICAL", f"Orchestrator CRASHED: {e}"),
-                )
-                self._update_sub_title("Orchestrator CRASHED!")
-                # Auto-quit on orchestrator failure
-                await asyncio.sleep(1.0)
-                self.call_later(self.action_quit)
+        except asyncio.CancelledError:
+            log.info("Orchestrator worker was cancelled gracefully.")
+        except Exception:
+            # The worker state change handler is now responsible for the reaction.
+            # Just log the exception here. The TUI will be shut down by the handler.
+            log.exception("Orchestrator failed within TUI worker. The app will shut down.")
         finally:
             log.info("Orchestrator worker finished.")
 
@@ -395,15 +390,23 @@ class SupsrcTuiApp(App):
             log.debug(f"Error updating countdown: {e}")
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
-        """Handle worker state changes."""
+        """Handle worker state changes, and exit the app when the main worker is done."""
         log.debug("Worker state changed", worker=event.worker.name, state=event.state)
-        if (
-            event.worker == self._worker
-            and event.state in ("SUCCESS", "ERROR")
-            and not self._is_shutting_down
-        ):
-            log.info(f"Orchestrator worker stopped: {event.state}")
-            self.call_later(self.action_quit)
+        # Only act on terminal states: SUCCESS or ERROR. Ignore PENDING and RUNNING.
+        if event.worker == self._worker and event.state in (WorkerState.SUCCESS, WorkerState.ERROR):
+            log.info(
+                f"Orchestrator worker has finished with state: {event.state!r}.",
+            )
+            # If the app is already shutting down, this is expected. We can exit cleanly.
+            if self._is_shutting_down:
+                self.exit(0)
+            else:
+                # If the app was NOT shutting down, this is an unexpected crash.
+                log.error("Orchestrator worker stopped unexpectedly. Initiating shutdown.")
+                self.post_message(
+                    LogMessageUpdate(None, "CRITICAL", "Orchestrator worker crashed. TUI will now exit.")
+                )
+                self.call_later(self.action_quit)
 
     async def _fetch_repo_details_worker(self, repo_id: str) -> None:
         """Worker to fetch repository details."""
@@ -481,7 +484,7 @@ class SupsrcTuiApp(App):
     def action_toggle_dark(self) -> None:
         """Toggle dark mode."""
         try:
-            self.screen.dark = not self.screen.dark
+            self.dark = not self.dark
         except Exception as e:
             log.error("Failed to toggle dark mode", error=str(e))
 
@@ -673,36 +676,26 @@ class SupsrcTuiApp(App):
             self.post_message(LogMessageUpdate(None, "ERROR", f"Failed to resume monitoring for '{repo_id}'."))
 
     def action_quit(self) -> None:
-        """Quit the application gracefully."""
+        """Initiates a graceful shutdown of the application."""
         if self._is_shutting_down:
-            return
+            return  # Shutdown already in progress
 
         self._is_shutting_down = True
-        log.info("Quit action triggered.")
+        log.info("Quit action triggered. Signaling components and exiting.")
         self._update_sub_title("Quitting...")
 
-        # Signal orchestrator shutdown
+        # Stop all managed timers immediately.
+        self._timer_manager.stop_all_timers()
+
+        # Signal other components that need to know about the shutdown.
         if not self._shutdown_event.is_set():
             self._shutdown_event.set()
-
-        # Also signal CLI shutdown to exit the main process
         if not self._cli_shutdown_event.is_set():
             self._cli_shutdown_event.set()
 
-        # Stop all timers
-        self._timer_manager.stop_all_timers()
-
-        # Cancel worker immediately without blocking
-        if self._worker and self._worker.is_running:
-            log.info("Cancelling orchestrator worker...")
-            try:
-                self._worker.cancel()
-            except Exception as e:
-                log.error(f"Error cancelling worker: {e}", exc_info=True)
-
-        log.info("Exiting TUI application.")
-
-        # Exit immediately - Textual will handle terminal restoration
+        # The most robust way to shut down is to tell Textual to exit.
+        # Textual's exit sequence will automatically handle cancelling any
+        # running workers (like our orchestrator worker).
         self.exit(0)
 
     # Message Handlers
@@ -878,6 +871,5 @@ class SupsrcTuiApp(App):
             "SUCCESS": "bold green",
         }
         return styles.get(level, "white")
-
-
+        
 # 🖥️✨

@@ -1,5 +1,4 @@
-#
-# supsrc/cli/watch_cmds.py
+# src/supsrc/cli/watch_cmds.py
 #
 
 import asyncio
@@ -17,7 +16,6 @@ from supsrc.cli.utils import logging_options, setup_logging_from_context
 from supsrc.telemetry import StructLogger
 
 # --- Try importing TUI App Class ---
-# (TUI import logic remains the same)
 try:
     from supsrc.tui.app import SupsrcTuiApp
 
@@ -86,36 +84,29 @@ def watch_cli(ctx: click.Context, config_path: Path, **kwargs):
 
     # Always run in TUI mode
     if not TEXTUAL_AVAILABLE or SupsrcTuiApp is None:
-        click.echo("Error: watch command requires 'supsrc[tui]' to be installed.", err=True)
-        click.echo("Hint: pip install 'supsrc[tui]' or uv tool install -e '.[tui]'", err=True)
+        # Improved error message to include the library name 'textual'
+        click.echo(
+            "Error: The 'watch' command requires the 'textual' library, provided by the 'tui' extra.",
+            err=True,
+        )
+        click.echo("Hint: pip install 'supsrc[tui]' or uv pip install -e '.[tui]'", err=True)
         ctx.exit(1)
 
     log.info("Initializing interactive dashboard...")
-    app = SupsrcTuiApp(config_path=config_path, cli_shutdown_event=_shutdown_requested)
     
     try:
+        # Move instantiation inside the try block to catch initialization errors
+        app = SupsrcTuiApp(config_path=config_path, cli_shutdown_event=_shutdown_requested)
         app.run()
         log.info("Interactive dashboard finished.")
-    except KeyboardInterrupt:
-        log.info("Keyboard interrupt received")
-        # Force exit on interrupt
-        import os
-        os._exit(0)
     except Exception as e:
-        log.error(f"TUI error: {e}")
-        # Only restore terminal on crash
-        import os
-        try:
-            os.system('stty sane')
-        except Exception:
-            pass
-        # Force exit on error
-        os._exit(1)
-    
-    # This should never be reached due to os._exit in action_quit
-    # but just in case...
-    import os
-    os._exit(0)
+        log.critical("The TUI application crashed unexpectedly.", error=str(e), exc_info=True)
+        click.echo(f"An unexpected error occurred in the TUI: {e}", err=True)
+        # Exit gracefully using Click's context, which raises a catchable SystemExit
+        ctx.exit(1)
+
+    # The command function should end naturally after app.run() completes.
+    # The app's own quit action handles raising SystemExit.
 
 
 # 🔼⚙️

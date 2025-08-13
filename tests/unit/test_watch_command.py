@@ -148,12 +148,13 @@ class TestWatchCommand:
 
         with patch("supsrc.cli.watch_cmds.TEXTUAL_AVAILABLE", True):
             with patch("supsrc.cli.watch_cmds.SupsrcTuiApp") as mock_tui_app:
-                # Simulate TUI crash
+                # Simulate TUI crash during instantiation
                 mock_tui_app.side_effect = Exception("TUI crashed!")
 
                 result = runner.invoke(cli, ["watch", "--config-path", str(config_file)])
 
         assert result.exit_code != 0
+        # The error is now printed to stderr and captured in result.output
         assert "error" in result.output.lower() or "crashed" in result.output.lower()
 
     def test_watch_keyboard_interrupt(self, tmp_path: Path) -> None:
@@ -166,13 +167,16 @@ class TestWatchCommand:
         with patch("supsrc.cli.watch_cmds.TEXTUAL_AVAILABLE", True):
             with patch("supsrc.cli.watch_cmds.SupsrcTuiApp") as mock_tui_app:
                 mock_app_instance = Mock()
+                # Click's runner translates KeyboardInterrupt to a special exception
+                # that it then handles by printing "Aborted!"
                 mock_app_instance.run.side_effect = KeyboardInterrupt()
                 mock_tui_app.return_value = mock_app_instance
 
                 result = runner.invoke(cli, ["watch", "--config-path", str(config_file)])
 
-        # Should handle interrupt gracefully
-        assert "stopping" in result.output.lower() or "exiting" in result.output.lower() or result.exit_code == 0
+        # Assert standard Click behavior for KeyboardInterrupt
+        assert result.exit_code == 1
+        assert "aborted" in result.output.lower()
 
 
 # 🧪👀

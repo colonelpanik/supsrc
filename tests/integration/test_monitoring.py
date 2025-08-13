@@ -1,4 +1,3 @@
-#
 # tests/integration/test_monitoring.py
 #
 """
@@ -14,9 +13,11 @@ from unittest.mock import Mock
 
 import pytest
 
+# Correctly import dependencies for the test fix
 from supsrc.config import load_config
 from supsrc.monitor import MonitoredEvent, MonitoringService
 from supsrc.runtime.orchestrator import WatchOrchestrator
+from supsrc.runtime.tui_interface import TUIInterface  # Import the TUI interface
 from supsrc.state import RepositoryStatus
 
 
@@ -266,16 +267,18 @@ class TestErrorHandling:
         shutdown_event = asyncio.Event()
         orchestrator = WatchOrchestrator(config_file, shutdown_event)
 
+        # Manually load config and create a mock TUI interface to pass to the method
+        config = load_config(config_file)
+        orchestrator.config = config  # Set config on orchestrator for the assertion
+        mock_tui = TUIInterface(None)
+
         # Should handle invalid path gracefully
         try:
-            await asyncio.wait_for(orchestrator._initialize_repositories(), timeout=5.0)
-            # Should have no enabled repositories
-            enabled_repos = [
-                repo_id
-                for repo_id, state in orchestrator.repo_states.items()
-                if orchestrator.config.repositories[repo_id].enabled
-            ]
-            assert len(enabled_repos) == 0
+            # Call the method with the required arguments
+            await asyncio.wait_for(orchestrator._initialize_repositories(config, mock_tui), timeout=5.0)
+            
+            # The invalid repo should be skipped, leaving repo_states empty
+            assert len(orchestrator.repo_states) == 0
 
         except Exception as e:
             pytest.fail(f"Should handle invalid paths gracefully: {e}")
