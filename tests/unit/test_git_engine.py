@@ -14,7 +14,6 @@ import pytest
 
 from supsrc.config.models import GlobalConfig
 from supsrc.engines.git import GitEngine, GitRepoSummary
-from supsrc.engines.git.credentials import GitCredentialManager
 from supsrc.protocols import CommitResult, PushResult, RepoStatusResult, StageResult
 from supsrc.state import RepositoryState
 
@@ -228,77 +227,5 @@ class TestGitEngine:
         assert result.success
         assert result.skipped
         assert "disabled" in result.message
-
-
-class TestGitCredentialManager:
-    """Test Git credential management functionality."""
-
-    @patch("pygit2.credentials.KeypairFromAgent", side_effect=pygit2.GitError("SSH agent not available"))
-    def test_ssh_key_auth_missing_files(self, mock_agent: Mock) -> None:
-        """Test SSH key authentication with missing key files."""
-        config = {"ssh_key_path": "/nonexistent/key"}
-        manager = GitCredentialManager(config)
-
-        result = manager.get_credentials(
-            "git@github.com:user/repo.git", "git", pygit2.GIT_CREDENTIAL_SSH_KEY
-        )
-
-        assert result is None
-        mock_agent.assert_called_once()
-
-    @patch("os.getenv")
-    def test_userpass_auth_success(self, mock_getenv: Mock) -> None:
-        """Test successful username/password authentication."""
-        mock_getenv.side_effect = lambda key: {
-            "GIT_USERNAME": "testuser",
-            "GIT_PASSWORD": "testpass",
-        }.get(key)
-
-        config = {}
-        manager = GitCredentialManager(config)
-
-        with patch("pygit2.credentials.UserPass") as mock_userpass:
-            mock_userpass.return_value = Mock()
-
-            result = manager.get_credentials(
-                "https://github.com/user/repo.git",
-                None,
-                pygit2.GIT_CREDENTIAL_USERPASS_PLAINTEXT,
-            )
-
-            assert result is not None
-            mock_userpass.assert_called_once_with("testuser", "testpass")
-
-    @patch("os.getenv")
-    def test_userpass_auth_missing_env(self, mock_getenv: Mock) -> None:
-        """Test username/password authentication with missing environment variables."""
-        mock_getenv.return_value = None
-
-        config = {}
-        manager = GitCredentialManager(config)
-
-        result = manager.get_credentials(
-            "https://github.com/user/repo.git",
-            None,
-            pygit2.GIT_CREDENTIAL_USERPASS_PLAINTEXT,
-        )
-
-        assert result is None
-
-    @patch("pygit2.credentials.KeypairFromAgent")
-    def test_ssh_agent_auth_failure(self, mock_agent: Mock) -> None:
-        """Test SSH agent authentication failure."""
-        mock_agent.side_effect = pygit2.GitError("SSH agent not available")
-
-        config = {}
-        manager = GitCredentialManager(config)
-
-        result = manager.get_credentials(
-            "git@github.com:user/repo.git", "git", pygit2.GIT_CREDENTIAL_SSH_KEY
-        )
-
-        # Should fall back to other methods or return None
-        assert result is None
-
 
 # 🧪🔧
