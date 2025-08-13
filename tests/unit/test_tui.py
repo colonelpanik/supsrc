@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 import pytest
 from textual.containers import Container
 from textual.widgets import DataTable
+from textual.worker import Worker, WorkerState
 
 from supsrc.state import RepositoryState
 from supsrc.tui.app import LogMessageUpdate, StateUpdate, SupsrcTuiApp, TimerManager
@@ -429,9 +430,7 @@ class TestTuiErrorHandling:
         mock_worker.name = "orchestrator"
         mock_worker.is_running = False
 
-        from textual.worker import Worker
-
-        state_event = Worker.StateChanged(mock_worker, "ERROR")
+        state_event = Worker.StateChanged(mock_worker, WorkerState.ERROR)
 
         tui_app._worker = mock_worker
 
@@ -513,9 +512,3 @@ class TestTuiAccessibility:
         tui_app.action_hide_detail_pane()
 
         mock_table.focus.assert_called_once()
-
-    def test_progress_bar_rendering(
-        self, mock_config_path: Path, mock_shutdown_event: asyncio.Event
-    ) -> None:
-        """This test is no longer relevant as there is no progress bar column."""
-        pass

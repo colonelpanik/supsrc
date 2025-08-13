@@ -143,6 +143,10 @@ class SupsrcEventHandler(FileSystemEventHandler):
         src_path_str = event.src_path
         dest_path_str = getattr(event, "dest_path", None)
 
+        if event.is_directory and event_type == "modified":
+            self.logger.debug("Ignoring noisy directory modification event", path=src_path_str)
+            return
+
         try:
             src_path = Path(src_path_str).resolve()
             dest_path = Path(dest_path_str).resolve() if dest_path_str else None

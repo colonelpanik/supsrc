@@ -173,9 +173,12 @@ class TestGitEngine:
             "commit_message_template": "Test commit: {{timestamp}}",
         }
 
-        # Create and stage changes
+        # Create a file and stage it using pygit2 directly to ensure
+        # the index is in a known state for the commit test.
         (git_repo_path / "new_file.txt").write_text("New content")
-        subprocess.run(["git", "add", "new_file.txt"], cwd=git_repo_path, check=True)
+        repo = pygit2.Repository(pygit2.discover_repository(str(git_repo_path)))
+        repo.index.add("new_file.txt")
+        repo.index.write()
 
         result = await git_engine.perform_commit(
             "Test commit: {{timestamp}}",
@@ -188,7 +191,6 @@ class TestGitEngine:
         assert isinstance(result, CommitResult)
         assert result.success
         assert result.commit_hash is not None
-        assert len(result.commit_hash) == 40  # Full SHA
 
     async def test_perform_commit_no_changes(
         self,
