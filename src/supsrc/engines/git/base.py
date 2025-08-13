@@ -357,7 +357,13 @@ class GitEngine(RepositoryEngine):
             try:
                 signature = repo.default_signature
             except pygit2.GitError:
-                signature = pygit2.Signature("Supsrc Automation", "supsrc@example.com")
+                self._log.warning("Git user name/email not configured, using fallback.")
+                fallback_name = "Supsrc Automation"
+                fallback_email = "supsrc@example.com"
+                timestamp = int(datetime.now(UTC).timestamp())
+                offset = 0  # UTC
+                signature = pygit2.Signature(fallback_name, fallback_email, timestamp, offset)
+
 
             change_summary = self._generate_change_summary(diff)
             commit_message_template_str = message_template or self._get_config_value(
@@ -414,6 +420,9 @@ class GitEngine(RepositoryEngine):
         try:
             result_dict = await asyncio.to_thread(_blocking_perform_push)
             return PushResult(**result_dict)
+        except KeyError as e:
+            self._log.error(f"Remote '{remote_name}' not found, returned error {e}.", repo_id=state.repo_id)
+            return PushResult(success=False, message=f"Remote '{remote_name}' not found.")
         except pygit2.GitError as e:
             self._log.error("Failed to perform push", error=str(e), repo_id=state.repo_id)
             return PushResult(success=False, message=f"Git push error: {e}")
