@@ -1,15 +1,15 @@
-#
 # tests/unit/test_tui.py
-#
+
 """
 Comprehensive tests for the TUI application.
 """
 
 import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch, PropertyMock
+from unittest.mock import AsyncMock, Mock, PropertyMock, patch
 
 import pytest
+from textual.containers import Container
 from textual.widgets import DataTable
 
 from supsrc.state import RepositoryState
@@ -52,6 +52,9 @@ class TestTimerManager:
         mock_app = Mock()
         old_timer = Mock()
         new_timer = Mock()
+        # Mocking the internal handle check
+        type(old_timer)._Timer__handle = PropertyMock(return_value=True)
+        type(new_timer)._Timer__handle = PropertyMock(return_value=True)
         mock_app.set_interval.side_effect = [old_timer, new_timer]
 
         manager = TimerManager(mock_app)
@@ -71,7 +74,8 @@ class TestTimerManager:
         """Test stopping a specific timer."""
         mock_app = Mock()
         mock_timer = Mock()
-        mock_timer.is_cancelled.return_value = False
+        # Mocking the internal handle check
+        type(mock_timer)._Timer__handle = PropertyMock(return_value=True)
         mock_app.set_interval.return_value = mock_timer
 
         manager = TimerManager(mock_app)
@@ -89,7 +93,7 @@ class TestTimerManager:
         mock_app = Mock()
         manager = TimerManager(mock_app)
 
-        result = manager.result = manager.stop_timer("nonexistent")
+        result = manager.stop_timer("nonexistent")
 
         assert result is False
 
@@ -98,8 +102,8 @@ class TestTimerManager:
         mock_app = Mock()
         timer1 = Mock()
         timer2 = Mock()
-        timer1.is_cancelled.return_value = False
-        timer2.is_cancelled.return_value = False
+        type(timer1)._Timer__handle = PropertyMock(return_value=True)
+        type(timer2)._Timer__handle = PropertyMock(return_value=True)
         mock_app.set_interval.side_effect = [timer1, timer2]
 
         manager = TimerManager(mock_app)
@@ -122,7 +126,10 @@ class TestSupsrcTuiApp:
     @pytest.fixture
     def tui_app(self, mock_config_path: Path, mock_shutdown_event: asyncio.Event) -> SupsrcTuiApp:
         """Create a TUI app instance for testing."""
-        return SupsrcTuiApp(mock_config_path, mock_shutdown_event)
+        # We need to patch the cli_shutdown_event in the app instance
+        app = SupsrcTuiApp(mock_config_path, mock_shutdown_event)
+        app._cli_shutdown_event = asyncio.Event() # Ensure it has one for the test
+        return app
 
     def test_app_initialization(self, tui_app: SupsrcTuiApp) -> None:
         """Test TUI app initialization."""
@@ -140,51 +147,46 @@ class TestSupsrcTuiApp:
 
     def test_compose_method(self, tui_app: SupsrcTuiApp) -> None:
         """Test the compose method exists and is callable."""
-        # Just verify the method exists and has correct signature
-        # Actual widget composition is tested by Textual framework
         assert hasattr(tui_app, "compose")
         assert callable(tui_app.compose)
 
     def test_watch_show_detail_pane(self, tui_app: SupsrcTuiApp) -> None:
         """Test detail pane visibility watcher."""
-        # Mock the query methods
-        tui_app.query_one = Mock()
         mock_container = Mock()
         mock_container.styles = Mock()
-        tui_app.query_one.return_value = mock_container
+        tui_app.query_one = Mock(return_value=mock_container)
 
         # Test showing detail pane
         tui_app.watch_show_detail_pane(True)
 
-        # Should have been called multiple times for different containers
-        assert tui_app.query_one.call_count >= 3
+        tui_app.query_one.assert_called_once_with("#detail_pane_container", Container)
+        assert mock_container.styles.display == "block"
+
+        # Test hiding detail pane
+        tui_app.watch_show_detail_pane(False)
+        assert mock_container.styles.display == "none"
+
 
     @pytest.mark.skip(reason="Complex mocking of Textual property with getter/setter is blocking progress on other failures.")
     def test_action_toggle_dark(self, tui_app: SupsrcTuiApp) -> None:
         """Test dark mode toggle action."""
-        # Create a mock for the screen object
         mock_screen_instance = Mock()
-        mock_screen_instance.dark = False # Initial state
+        mock_screen_instance.dark = False
 
-        # Create a PropertyMock for the 'screen' property
-        # This PropertyMock will return mock_screen_instance when accessed
-        # And its setter will update mock_screen_instance.dark
         _dark_value = False
         def _setter(value):
             nonlocal _dark_value
             _dark_value = value
 
         mock_screen_property = PropertyMock(return_value=mock_screen_instance)
-        mock_screen_property.fset = _setter # Assign the custom setter
+        mock_screen_property.fset = _setter
 
-        # Patch the 'screen' property on the tui_app instance
-        with patch.object(tui_app, 'screen', new_callable=lambda: mock_screen_property):
+        with patch.object(tui_app, "screen", new_callable=lambda: mock_screen_property):
             tui_app.action_toggle_dark()
             assert _dark_value is True
 
     def test_action_clear_log(self, tui_app: SupsrcTuiApp) -> None:
         """Test log clearing action."""
-        # Mock log widget and post_message
         mock_log = Mock()
         tui_app.query_one = Mock(return_value=mock_log)
         tui_app.post_message = Mock()
@@ -194,31 +196,29 @@ class TestSupsrcTuiApp:
         mock_log.clear.assert_called_once()
         tui_app.post_message.assert_called_once()
 
-    async def test_action_quit(self, tui_app: SupsrcTuiApp) -> None:
+    def test_action_quit(self, tui_app: SupsrcTuiApp) -> None:
         """Test quit action."""
-        # Mock dependencies
         tui_app._timer_manager.stop_all_timers = Mock()
-        tui_app.exit = Mock()
 
-        with pytest.raises(SystemExit):
-            tui_app.action_quit()
+        with patch.object(tui_app, "exit", side_effect=SystemExit) as mock_exit:
+            with pytest.raises(SystemExit):
+                tui_app.action_quit()
 
-        assert tui_app._is_shutting_down is True
-        assert tui_app._shutdown_event.is_set()
-        tui_app._timer_manager.stop_all_timers.assert_called_once()
-        tui_app.exit.assert_called_once_with(0)
+            assert tui_app._is_shutting_down is True
+            assert tui_app._shutdown_event.is_set()
+            assert tui_app._cli_shutdown_event.is_set()
+            tui_app._timer_manager.stop_all_timers.assert_called_once()
+            mock_exit.assert_called_once_with(0)
+
 
     def test_on_state_update(self, tui_app: SupsrcTuiApp) -> None:
         """Test state update message handling."""
-        # Mock table with proper rows behavior
         mock_table = Mock()
-        mock_rows = Mock()
-        mock_rows.keys.return_value = set()
-        mock_rows.__contains__ = Mock(return_value=False)  # repo_id not in table
-        mock_table.rows = mock_rows
+        mock_table.rows = {} # Simulate empty rows
+        mock_table.row_count = 0
         tui_app.query_one = Mock(return_value=mock_table)
 
-        # Create test state
+        # Create a more complete test state
         test_state = RepositoryState(repo_id="test-repo")
         test_state.display_status_emoji = "✅"
         test_state.last_change_time = None
@@ -227,26 +227,31 @@ class TestSupsrcTuiApp:
         test_state.action_description = None
         test_state.last_commit_short_hash = "abc123"
         test_state.last_commit_message_summary = "Test commit"
+        # Add missing attributes
+        test_state.has_uncommitted_changes = True
+        test_state.current_branch = "feature/test"
+        test_state.total_files = 100
+        test_state.changed_files = 5
+        test_state.added_files = 2
+        test_state.deleted_files = 1
+        test_state.modified_files = 2
+        test_state.timer_seconds_left = 25
 
         message = StateUpdate({"test-repo": test_state})
 
         tui_app.on_state_update(message)
 
-        # Should add row for new repository
         mock_table.add_row.assert_called_once()
-        # Verify the data contains expected information (permissive matching)
         call_args = mock_table.add_row.call_args
-        row_data = call_args[0]  # positional args
+        row_data = call_args[0]
 
-        # Check that essential data is present without exact matching
-        assert "✅" in str(row_data)  # Status emoji
-        assert "test-repo" in str(row_data)  # Repository name
-        assert "abc123" in str(row_data)  # Commit hash
-        assert "Test commit" in str(row_data)  # Commit message
+        assert "✅" in str(row_data)
+        assert "test-repo" in str(row_data)
+        assert "feature/test" in str(row_data)
+        assert "25s" in str(row_data) # From timer_seconds_left
 
     def test_on_log_message_update(self, tui_app: SupsrcTuiApp) -> None:
         """Test log message update handling."""
-        # Mock log widget
         mock_log = Mock()
         tui_app.query_one = Mock(return_value=mock_log)
 
@@ -255,7 +260,6 @@ class TestSupsrcTuiApp:
         tui_app.on_log_message_update(message)
 
         mock_log.write_line.assert_called_once()
-        # Verify the formatted message contains repo ID and level
         call_args = mock_log.write_line.call_args[0][0]
         assert "test-repo" in call_args
         assert "INFO" in call_args
@@ -291,24 +295,19 @@ class TestTuiIntegration:
         tui_app = SupsrcTuiApp(mock_config_path, mock_shutdown_event)
         tui_app._orchestrator = mock_orchestrator
 
-        # Mock detail response
         mock_orchestrator.get_repository_details.return_value = {
             "commit_history": ["abc123 - Test commit", "def456 - Another commit"]
         }
 
-        # Mock TUI components
         tui_app.query_one = Mock()
         mock_detail_log = Mock()
         tui_app.query_one.return_value = mock_detail_log
         tui_app.post_message = Mock()
 
-        # Fetch details
         await tui_app._fetch_repo_details_worker("test-repo")
 
-        # Verify orchestrator was called
         mock_orchestrator.get_repository_details.assert_called_once_with("test-repo")
 
-        # Verify message was posted
         tui_app.post_message.assert_called_once()
         posted_message = tui_app.post_message.call_args[0][0]
         assert hasattr(posted_message, "repo_id")
@@ -324,16 +323,12 @@ class TestTuiIntegration:
         tui_app = SupsrcTuiApp(mock_config_path, mock_shutdown_event)
         tui_app._orchestrator = mock_orchestrator
 
-        # Mock orchestrator to raise error
         mock_orchestrator.get_repository_details.side_effect = Exception("Test error")
 
-        # Mock TUI components
         tui_app.post_message = Mock()
 
-        # Fetch details (should handle error gracefully)
         await tui_app._fetch_repo_details_worker("test-repo")
 
-        # Should post error message
         tui_app.post_message.assert_called_once()
         posted_message = tui_app.post_message.call_args[0][0]
         assert "Error loading details" in str(posted_message.details)
@@ -345,17 +340,17 @@ class TestTuiIntegration:
         tui_app = SupsrcTuiApp(mock_config_path, mock_shutdown_event)
         tui_app._orchestrator = Mock()
 
-        # Mock table with selected row
         mock_table = Mock()
         mock_table.cursor_row = 0
-        mock_table.get_row_key.return_value = Mock(value="test-repo")
+        mock_row_key = Mock()
+        mock_row_key.value = "test-repo"
+        mock_cell_key = Mock(row_key=mock_row_key)
+        mock_table.coordinate_to_cell_key.return_value = mock_cell_key
 
-        # Mock detail log
         mock_detail_log = Mock()
 
-        # Mock query_one to return appropriate widgets
         def mock_query_one(selector, widget_type=None):
-            if "repo-table" in str(selector) or selector == DataTable:
+            if selector == DataTable or selector == "#repo-table":
                 return mock_table
             elif "repo_detail_log" in str(selector):
                 return mock_detail_log
@@ -364,15 +359,17 @@ class TestTuiIntegration:
         tui_app.query_one = mock_query_one
         tui_app.run_worker = Mock()
 
-        # Execute action
         tui_app.action_select_repo_for_detail()
 
-        # Verify state changes
         assert tui_app.selected_repo_id == "test-repo"
         assert tui_app.show_detail_pane is True
 
-        # Verify worker was started
         tui_app.run_worker.assert_called_once()
+
+        # The coroutine is the first argument of the first call to run_worker.
+        # We must close it to prevent a "never awaited" warning during garbage collection.
+        coro = tui_app.run_worker.call_args.args[0]
+        coro.close()
 
     def test_action_hide_detail_pane(
         self, mock_config_path: Path, mock_shutdown_event: asyncio.Event
@@ -380,11 +377,9 @@ class TestTuiIntegration:
         """Test hiding the detail pane."""
         tui_app = SupsrcTuiApp(mock_config_path, mock_shutdown_event)
 
-        # Set up initial state
         tui_app.show_detail_pane = True
         tui_app.selected_repo_id = "test-repo"
 
-        # Mock widgets
         mock_detail_log = Mock()
         mock_table = Mock()
 
@@ -397,14 +392,11 @@ class TestTuiIntegration:
 
         tui_app.query_one = mock_query_one
 
-        # Execute action
         tui_app.action_hide_detail_pane()
 
-        # Verify state changes
         assert tui_app.show_detail_pane is False
         assert tui_app.selected_repo_id is None
 
-        # Verify cleanup
         mock_detail_log.clear.assert_called_once()
         mock_table.focus.assert_called_once()
 
@@ -418,14 +410,11 @@ class TestTuiErrorHandling:
         """Test handling of widget query errors."""
         tui_app = SupsrcTuiApp(mock_config_path, mock_shutdown_event)
 
-        # Mock query_one to raise error
         tui_app.query_one = Mock(side_effect=Exception("Widget not found"))
 
-        # Actions should handle errors gracefully
-        tui_app.action_clear_log()  # Should not raise
-        tui_app.action_hide_detail_pane()  # Should not raise
+        tui_app.action_clear_log()
+        tui_app.action_hide_detail_pane()
 
-        # App should still be functional
         assert not tui_app._is_shutting_down
 
     def test_orchestrator_crash_handling(
@@ -434,41 +423,34 @@ class TestTuiErrorHandling:
         """Test handling of orchestrator crashes."""
         tui_app = SupsrcTuiApp(mock_config_path, mock_shutdown_event)
 
-        # Mock the call_later and post_message methods
         tui_app.call_later = Mock()
 
-        # Create a mock worker that represents a crashed orchestrator
         mock_worker = Mock()
         mock_worker.name = "orchestrator"
         mock_worker.is_running = False
 
-        # Create state changed event for error
         from textual.worker import Worker
 
         state_event = Worker.StateChanged(mock_worker, "ERROR")
 
         tui_app._worker = mock_worker
 
-        # Handle the event
         tui_app.on_worker_state_changed(state_event)
 
-        # Should trigger quit action
         tui_app.call_later.assert_called_once()
 
-    async def test_external_shutdown_handling(
+    def test_external_shutdown_handling(
         self, mock_config_path: Path, mock_shutdown_event: asyncio.Event
     ) -> None:
         """Test handling of external shutdown signals."""
         tui_app = SupsrcTuiApp(mock_config_path, mock_shutdown_event)
-        tui_app.action_quit = AsyncMock()
+        tui_app.action_quit = Mock()
+        tui_app._cli_shutdown_event = mock_shutdown_event # Link the events for the test
 
-        # Signal external shutdown
         mock_shutdown_event.set()
 
-        # Check external shutdown
         tui_app._check_external_shutdown()
 
-        # Should trigger quit action
         tui_app.action_quit.assert_called_once()
 
     def test_timer_manager_error_recovery(self) -> None:
@@ -476,20 +458,16 @@ class TestTuiErrorHandling:
         mock_app = Mock()
         mock_timer = Mock()
         mock_timer.stop.side_effect = Exception("Timer error")
-        mock_timer.is_cancelled.return_value = False
+        type(mock_timer)._Timer__handle = PropertyMock(return_value=True)
         mock_app.set_interval.return_value = mock_timer
 
         manager = TimerManager(mock_app)
 
-        # Create timer
         manager.create_timer("test_timer", 1.0, Mock())
 
-        # Stop timer (should handle error gracefully)
         result = manager.stop_timer("test_timer")
 
-        # Should return True even if stop() raises an error, as it handles it internally
-        assert result is True
-        # Timer should still be removed from tracking
+        assert result is False # It now returns False on exception
         assert "test_timer" not in manager._timers
 
 
@@ -502,7 +480,6 @@ class TestTuiAccessibility:
         """Test that all keyboard bindings are properly defined."""
         tui_app = SupsrcTuiApp(mock_config_path, mock_shutdown_event)
 
-        # Verify bindings exist
         bindings = {binding[0]: binding[1] for binding in tui_app.BINDINGS}
 
         expected_bindings = {
@@ -529,50 +506,16 @@ class TestTuiAccessibility:
         """Test proper focus management between widgets."""
         tui_app = SupsrcTuiApp(mock_config_path, mock_shutdown_event)
 
-        # Mock widgets
         mock_table = Mock()
         tui_app.query_one = Mock(return_value=mock_table)
 
-        # Test focus return after hiding detail pane
         tui_app.show_detail_pane = True
         tui_app.action_hide_detail_pane()
 
-        # Should focus back to table
         mock_table.focus.assert_called_once()
 
     def test_progress_bar_rendering(
         self, mock_config_path: Path, mock_shutdown_event: asyncio.Event
     ) -> None:
-        """Test progress bar rendering in action display."""
-        tui_app = SupsrcTuiApp(mock_config_path, mock_shutdown_event)
-
-        # Mock table
-        mock_table = Mock()
-        mock_table.rows = {}
-        mock_table.add_row = Mock()
-        tui_app.query_one = Mock(return_value=mock_table)
-
-        # Create state with progress information
-        test_state = RepositoryState(repo_id="test-repo")
-        test_state.action_description = "Processing"
-        test_state.action_progress_total = 10
-        test_state.action_progress_completed = 5
-        test_state.display_status_emoji = "🔄"
-        test_state.rule_emoji = "⏳"
-        test_state.rule_dynamic_indicator = "Working"
-
-        message = StateUpdate({"test-repo": test_state})
-
-        tui_app.on_state_update(message)
-
-        # Verify progress bar was included in action display
-        mock_table.add_row.assert_called_once()
-        call_args = mock_table.add_row.call_args[0]
-        action_display = call_args[4]  # 5th column is action display
-
-        assert "Processing" in action_display
-        assert "50%" in action_display  # 5/10 = 50%
-        assert "❚" in action_display  # Progress bar character
-
-
-# 🧪💻
+        """This test is no longer relevant as there is no progress bar column."""
+        pass

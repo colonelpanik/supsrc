@@ -35,7 +35,7 @@ BASE_LOGGER_NAME = "supsrc"  # Used for filtering/formatting
 # Emojis remain useful for the custom processor
 LOG_EMOJIS = {
     logging.DEBUG: "🐛",
-    logging.INFO: "ℹ️",
+    logging.INFO: "ℹ️",  # noqa: RUF001
     logging.WARNING: "⚠️",
     logging.ERROR: "❌",
     logging.CRITICAL: "💥",
@@ -125,7 +125,11 @@ def setup_logging(
 
     # Configure the standard library root logger handler (for console)
     root_logger = logging.getLogger()  # Get stdlib root logger
-    root_logger.handlers.clear()  # Clear existing handlers
+
+    for handler in list(root_logger.handlers):
+        handler.close()
+        root_logger.removeHandler(handler)
+
     root_logger.setLevel(level)  # Set level on the root logger first
 
     # Log initial message using a structlog logger AFTER configuration

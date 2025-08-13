@@ -6,6 +6,7 @@ Unit tests for specific features of the WatchOrchestrator, such as auto-freeze a
 """
 
 import asyncio
+import contextlib
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -64,7 +65,6 @@ async def test_auto_freeze_on_conflict():
         mock_subprocess_run.assert_called_once()
         assert "display notification" in mock_subprocess_run.call_args[0][0][2]
 
-
 @pytest.mark.slow
 @pytest.mark.asyncio
 async def test_event_consumption_for_paused_repository():
@@ -82,6 +82,10 @@ async def test_event_consumption_for_paused_repository():
     repo_state.is_paused = True  # Pause the repository
     orchestrator.repo_states[repo_id] = repo_state
 
+    # FIX: Mock the config so the consumer can find the repository
+    orchestrator.config = MagicMock()
+    orchestrator.config.repositories.get.return_value = MagicMock(name="mock_repo_config")
+
     # Put an event onto the queue for the paused repo
     mock_event = MagicMock()
     mock_event.repo_id = repo_id
@@ -92,10 +96,8 @@ async def test_event_consumption_for_paused_repository():
     consumer_task = asyncio.create_task(orchestrator._consume_events())
     await asyncio.sleep(0.1)
     consumer_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await consumer_task
-    except asyncio.CancelledError:
-        pass
 
     # Assert
     # The event should have been put back on the queue
@@ -125,5 +127,5 @@ def test_toggle_repository_pause():
     # Act & Assert (Resume)
     orchestrator.toggle_repository_pause(repo_id)
     assert repo_state.is_paused is False
-    assert repo_state.display_status_emoji == "🧼" # Should revert to IDLE emoji
+    assert repo_state.display_status_emoji == "▶️"  # Default emoji for IDLE status
     assert orchestrator._post_tui_state_update.call_count == 2

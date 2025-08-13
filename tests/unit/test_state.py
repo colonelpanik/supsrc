@@ -23,7 +23,7 @@ class TestRepositoryState:
         assert state.save_count == 0
         assert state.error_message is None
         assert state.inactivity_timer_handle is None
-        assert state.display_status_emoji == "✅"  # Default emoji for IDLE status
+        assert state.display_status_emoji == "▶️"  # Default emoji for IDLE status
 
     def test_record_change(self) -> None:
         """Test recording file changes."""
@@ -66,7 +66,7 @@ class TestRepositoryState:
         state.update_status(RepositoryStatus.IDLE)
         assert state.status == RepositoryStatus.IDLE
         assert state.error_message is None
-        assert state.display_status_emoji == "✅"
+        assert state.display_status_emoji == "▶️"  # Default emoji for IDLE status
 
     def test_reset_after_action(self) -> None:
         """Test state reset after successful actions."""

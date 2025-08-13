@@ -183,7 +183,6 @@ class SupsrcEventHandler(FileSystemEventHandler):
             dest_path=dest_path,
         )
 
-        # --- FIX: Use loop.call_soon_threadsafe ---
         if self.loop.is_running():
             self.loop.call_soon_threadsafe(self._queue_event_threadsafe, monitored_event)
         else:

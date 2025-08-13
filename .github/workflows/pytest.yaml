@@ -1,0 +1,65 @@
+#
+# .github/workflows/pytest.yaml
+#
+# GitHub Actions workflow for running Pytest.
+#
+
+name: Run Pytest
+
+# --- Triggers ---
+# Run on pushes and pull requests to the main branch
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# --- Job Configuration ---
+jobs:
+  test:
+    name: "Test on Python ${{ matrix.python-version }}"
+    runs-on: ubuntu-latest
+
+    # Define the strategy for running tests on multiple Python versions
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [ "3.11", "3.12", "3.13" ]
+
+    steps:
+      # 1. Checkout the repository code
+      - name: "📂 Checkout Repository"
+        uses: actions/checkout@v4
+
+      # 2. Set up the specified Python version
+      - name: "🐍 Set up Python ${{ matrix.python-version }}"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "${{ matrix.python-version }}"
+
+      # 3. Install uv, the project's package manager
+      - name: "🚀 Install uv"
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+        shell: bash
+
+      # 4. Install project dependencies using uv
+      #    -e . installs the project in editable mode.
+      #    [dev,tui] installs all dependencies needed for testing, including pytest and textual.
+      - name: "📦 Install Dependencies"
+        run: uv pip install -e ".[dev,tui]"
+        shell: bash
+
+      # 5. Run tests with pytest and generate a coverage report
+      - name: "🧪 Run Pytest with Coverage"
+        run: uv run pytest --cov=src/supsrc --cov-report=xml
+        shell: bash
+
+      # 6. Upload coverage report to Codecov
+      - name: "📤 Upload Coverage to Codecov"
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }} # Optional: for private repos
+          file: ./coverage.xml
+          fail_ci_if_error: true

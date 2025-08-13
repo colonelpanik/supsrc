@@ -28,12 +28,15 @@ class TestConfigLoading:
 
     def test_load_valid_config(self, tmp_path: Path) -> None:
         """Test loading a valid configuration file."""
-        config_content = """
+        repo_path = tmp_path / "test_repo"
+        repo_path.mkdir()
+
+        config_content = f"""
         [global]
         log_level = "DEBUG"
 
         [repositories.test-repo]
-        path = "/tmp/test"
+        path = "{repo_path}"
         enabled = true
 
         [repositories.test-repo.rule]
@@ -44,6 +47,7 @@ class TestConfigLoading:
         type = "supsrc.engines.git"
         auto_push = true
         """
+        # -----------------------------------------------------------------
 
         config_file = tmp_path / "test.conf"
         config_file.write_text(config_content)
