@@ -1,118 +1,46 @@
-#
-# supsrc/cli/tail_cmds.py
-#
-"""
-Tail command for non-interactive repository monitoring.
-This is the headless version of the old 'watch' command.
-"""
+# src/supsrc/cli/tail_cmds.py
 
 import asyncio
 import logging
-import signal
 import sys
-from contextlib import suppress
 from pathlib import Path
 
 import click
 import structlog
 
-# Import logging utilities
 from supsrc.cli.utils import logging_options, setup_logging_from_context
 from supsrc.runtime.orchestrator import WatchOrchestrator
-
-# Use absolute imports
 from supsrc.telemetry import StructLogger
 
 log: StructLogger = structlog.get_logger("cli.tail")
 
-# --- Global Shutdown Event & Signal Handler ---
-_shutdown_requested = asyncio.Event()
-
-
-async def _handle_signal_async(sig: int):
-    """Handle shutdown signals asynchronously."""
-    signame = signal.Signals(sig).name
-    base_log = structlog.get_logger("cli.tail.signal")
-    base_log.warning("Received shutdown signal", signal=signame, signal_num=sig)
-    if not _shutdown_requested.is_set():
-        base_log.info("Setting shutdown requested event.")
-        _shutdown_requested.set()
-    else:
-        base_log.warning("Shutdown already requested, signal ignored.")
-
 
 def _run_headless_orchestrator(orchestrator: WatchOrchestrator) -> int:
     """
-    Sets up the asyncio loop and signal handlers to run the orchestrator
-    in a headless (non-TUI) mode.
-
-    Returns:
-        An integer exit code.
+    Runs the orchestrator using the standard asyncio.run(), which provides
+    robust signal handling and lifecycle management.
     """
     try:
-        loop = asyncio.get_event_loop_policy().get_event_loop()
-        if loop.is_closed():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    signals_to_handle = (signal.SIGINT, signal.SIGTERM)
-    handlers_added = False
-    log.debug(f"Adding signal handlers to loop {id(loop)}")
-    try:
-        for sig in signals_to_handle:
-            loop.add_signal_handler(sig, lambda s=sig: asyncio.create_task(_handle_signal_async(s)))
-        handlers_added = True
-        log.debug("Added signal handlers")
-    except Exception as e:
-        log.error("Failed to add signal handlers", error=str(e), exc_info=True)
-
-    exit_code = 0
-    main_task: asyncio.Task | None = None
-
-    try:
-        log.debug("Creating main orchestrator task...")
-        main_task = loop.create_task(orchestrator.run(), name="OrchestratorRun")
-        log.debug(f"Running event loop {id(loop)}...")
-        loop.run_until_complete(main_task)
-        log.debug("Orchestrator task completed normally.")
+        # asyncio.run() is the preferred, high-level way to run an async application.
+        # It creates a new event loop, runs the coroutine until it completes,
+        # and handles cleanup. Crucially, it also adds its own signal handlers
+        # for SIGINT and SIGTERM that will correctly cancel the main task.
+        asyncio.run(orchestrator.run())
+        return 0
     except KeyboardInterrupt:
-        log.warning("KeyboardInterrupt caught. Signalling shutdown.")
-        if not _shutdown_requested.is_set():
-            _shutdown_requested.set()
-        exit_code = 130
-    except asyncio.CancelledError:
-        log.warning("Main orchestrator task cancelled.")
-        if not _shutdown_requested.is_set():
-            _shutdown_requested.set()
-        exit_code = 1
-    except Exception as e:
-        log.critical("Orchestrator run failed", error=str(e), exc_info=True)
-        if not _shutdown_requested.is_set():
-            _shutdown_requested.set()
-        exit_code = 1
+        # This block is entered when CTRL-C is pressed.
+        # The finally block within orchestrator.run() will have already been
+        # executed by the time we get here, due to the task cancellation
+        # handled by asyncio.run().
+        log.warning("Shutdown initiated by KeyboardInterrupt (CTRL-C).")
+        return 130  # Standard exit code for SIGINT
+    except Exception:
+        # This catches any other unhandled exceptions from the orchestrator.
+        log.critical("Orchestrator exited with an unhandled exception.", exc_info=True)
+        return 1
     finally:
-        log.debug(f"tail_cli finally block starting. Loop closed: {loop.is_closed()}")
-
-        if not loop.is_closed():
-            # ... (Graceful Task Cleanup as before) ...
-            if handlers_added:
-                log.debug("Removing signal handlers")
-                for sig in signals_to_handle:
-                    with suppress(ValueError, RuntimeError, Exception):
-                        loop.remove_signal_handler(sig)
-
-            log.debug("Shutting down async generators...")
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            loop.close()
-            log.info("Event loop closed.")
-
-        log.debug("Shutting down standard logging...")
+        # Final log message after the event loop is closed.
         logging.shutdown()
-
-    return exit_code
 
 
 @click.command(name="tail")
@@ -130,31 +58,31 @@ def _run_headless_orchestrator(orchestrator: WatchOrchestrator) -> int:
 @click.pass_context
 def tail_cli(ctx: click.Context, config_path: Path, **kwargs):
     """Follow repository changes and trigger actions (non-interactive mode)."""
-    # 1. Setup logging (this is a CLI concern)
+    # The shutdown event is still necessary to signal between async components.
+    # asyncio.run() will manage propagating the initial cancellation.
+    shutdown_event = asyncio.Event()
+
     setup_logging_from_context(
         ctx,
         local_log_level=kwargs.get("log_level"),
         local_log_file=kwargs.get("log_file"),
         local_json_logs=kwargs.get("json_logs"),
-        local_file_only_logs=kwargs.get("file_only_logs", False),
+        headless_mode=True,
     )
 
     log.info("Initializing tail command...")
 
-    # 2. Instantiate the application logic object
     orchestrator = WatchOrchestrator(
         config_path=config_path,
-        shutdown_event=_shutdown_requested,
-        app=None,  # No TUI app
-        console=None,  # No Rich console for this mode
+        shutdown_event=shutdown_event,
+        app=None,  # No TUI
+        console=None,
     )
 
-    # 3. Hand off to the runner and get the exit code
     exit_code = _run_headless_orchestrator(orchestrator)
 
     log.info("'tail' command finished.")
     if exit_code != 0:
         sys.exit(exit_code)
-
-
+        
 # 🔼⚙️

@@ -161,4 +161,3 @@ class ActionHandler:
                 repo_state.update_status(RepositoryStatus.ERROR, error_msg)
                 self.tui.post_log_update(repo_id, "CRITICAL", error_msg)
                 self.tui.post_state_update(self.repo_states)
-                

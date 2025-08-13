@@ -1,5 +1,4 @@
-#
-# supsrc/state.py
+# src/supsrc/state.py
 #
 """
 Defines the dynamic state management models for monitored repositories in supsrc.
@@ -166,7 +165,7 @@ class RepositoryState:
         self.last_change_time = now_utc
         self.save_count += 1
         self.update_status(RepositoryStatus.CHANGED)  # Move to CHANGED state
-        log.debug(
+        log.info(
             "Recorded file change",
             repo_id=self.repo_id,
             change_time_utc=now_utc.isoformat(),
@@ -260,6 +259,5 @@ class RepositoryState:
                 f"Updated emoji for {self.repo_id}: '{old_emoji}' -> '{self.display_status_emoji}' "
                 f"(paused={self.is_paused}, stopped={self.is_stopped}, status={self.status.name})"
             )
-
 
 # 🔼⚙️

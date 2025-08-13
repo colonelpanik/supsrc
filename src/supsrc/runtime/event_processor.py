@@ -107,7 +107,6 @@ class EventProcessor:
                 # --- End De-duplication Logic ---
 
                 repo_state.record_change()
-                self.tui.post_log_update(repo_id, "DEBUG", f"Change detected: {event.src_path.name}")
                 self.tui.post_state_update(self.repo_states)
 
                 if check_trigger_condition(repo_state, repo_config):
