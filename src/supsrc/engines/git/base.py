@@ -234,8 +234,17 @@ class GitEngine(RepositoryEngine):
             staged_list = []
 
             if files:
-                # This logic is complex and better left as is for now
-                raise NotImplementedError("Staging specific files not fully supported in async engine yet")
+                repo_root = Path(repo.workdir)
+                for f in files:
+                    try:
+                        # Ensure f is a Path object if it's coming in as a string
+                        rel_path = str(Path(f).relative_to(repo_root))
+                        index.add(rel_path)
+                        staged_list.append(rel_path)
+                    except (ValueError, KeyError):
+                        # The previous implementation logged a warning here.
+                        # Consider how to handle/report files that fail to stage.
+                        pass
             else:
                 index.add_all()
                 staged_list = [filepath for filepath, flags in repo.status().items() if flags != pygit2.GIT_STATUS_CURRENT]
