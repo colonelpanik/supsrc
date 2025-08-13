@@ -190,7 +190,6 @@ class TestMonitoringIntegration:
             # Verify repository state is initialized
             assert "test-repo" in orchestrator.repo_states
             repo_state = orchestrator.repo_states["test-repo"]
-            repo_state = orchestrator.repo_states["test-repo"]
             assert repo_state.status == RepositoryStatus.IDLE
             assert repo_state.save_count == 0
 
