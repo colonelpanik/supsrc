@@ -156,4 +156,3 @@ class TestEventProcessor:
 
         # Assert: The event should have been put back on the queue
         assert event_processor.event_queue.qsize() == 1
-        

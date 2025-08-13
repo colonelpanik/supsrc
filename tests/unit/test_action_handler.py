@@ -151,4 +151,3 @@ class TestActionHandler:
 
         mock_repo_engine.perform_push.assert_not_called()
         assert state.status == RepositoryStatus.IDLE
-        

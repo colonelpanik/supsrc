@@ -117,4 +117,3 @@ class TestOrchestratorFeatures:
         mock_orchestrator.toggle_repository_pause(repo_id)
         assert repo_state.is_paused is False
         assert repo_state.display_status_emoji == "▶️"  # Default for IDLE
-        
