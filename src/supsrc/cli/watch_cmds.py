@@ -1,5 +1,4 @@
 # src/supsrc/cli/watch_cmds.py
-#
 
 import asyncio
 import signal
@@ -8,38 +7,21 @@ from pathlib import Path
 import click
 import structlog
 
-# --- Rich Imports ---
-# Import logging utilities
 from supsrc.cli.utils import logging_options, setup_logging_from_context
-
-# Use absolute imports
 from supsrc.telemetry import StructLogger
 
-# --- Try importing TUI App Class ---
 try:
     from supsrc.tui.app import SupsrcTuiApp
-
     TEXTUAL_AVAILABLE = True
-    log_tui = structlog.get_logger("cli.watch.tui_check")
-    log_tui.debug("Successfully imported supsrc.tui.app.SupsrcTuiApp.")
-except ImportError as e:
+except ImportError:
     TEXTUAL_AVAILABLE = False
     SupsrcTuiApp = None
-    log_tui = structlog.get_logger("cli.watch.tui_check")
-    log_tui.debug(
-        "Failed to import supsrc.tui.app. Possible missing 'supsrc[tui]' install or error in tui module.",
-        error=str(e),
-    )
-
 
 log: StructLogger = structlog.get_logger("cli.watch")
 
-# --- Global Shutdown Event & Signal Handler (remains the same) ---
 _shutdown_requested = asyncio.Event()
 
-
 async def _handle_signal_async(sig: int):
-    # (Implementation remains the same)
     signame = signal.Signals(sig).name
     base_log = structlog.get_logger("cli.watch.signal")
     base_log.warning("Received shutdown signal", signal=signame, signal_num=sig)
@@ -49,8 +31,6 @@ async def _handle_signal_async(sig: int):
     else:
         base_log.warning("Shutdown already requested, signal ignored.")
 
-
-# --- Click Command Definition (remains the same) ---
 @click.command(name="watch")
 @click.option(
     "-c",
@@ -66,47 +46,35 @@ async def _handle_signal_async(sig: int):
 @click.pass_context
 def watch_cli(ctx: click.Context, config_path: Path, **kwargs):
     """Interactive dashboard for monitoring repositories."""
-    # Setup logging for TUI mode
-    ctx.obj.get("LOG_FILE")  # Check if global --log-file was set
-
-    # For TUI mode, always default to file_only_logs=True to prevent console log pollution
-    effective_file_only_logs = kwargs.get("file_only_logs")
-    if effective_file_only_logs is None:
-        effective_file_only_logs = True  # Always suppress console logs in TUI mode
-
-    setup_logging_from_context(
-        ctx,
-        local_log_level=kwargs.get("log_level"),
-        local_log_file=kwargs.get("log_file"),
-        local_json_logs=kwargs.get("json_logs"),
-        local_file_only_logs=effective_file_only_logs,
-    )
-
-    # Always run in TUI mode
+    # Step 1: Check for TUI dependencies before configuring logging.
     if not TEXTUAL_AVAILABLE or SupsrcTuiApp is None:
-        # Improved error message to include the library name 'textual'
+        # Set up basic console logging to ensure the error is visible.
+        setup_logging_from_context(ctx)
+        log.error("TUI dependencies not installed for 'watch' command.")
         click.echo(
             "Error: The 'watch' command requires the 'textual' library, provided by the 'tui' extra.",
             err=True,
         )
-        click.echo("Hint: pip install 'supsrc[tui]' or uv pip install -e '.[tui]'", err=True)
+        click.echo("Hint: pip install 'supsrc[tui]' or uv pip install 'supsrc[tui]'", err=True)
         ctx.exit(1)
+        return
 
+    # Step 2: Dependencies are available. Now run the TUI application.
+    # The TUI app itself will configure the final logging setup.
     log.info("Initializing interactive dashboard...")
-    
+
     try:
-        # Move instantiation inside the try block to catch initialization errors
         app = SupsrcTuiApp(config_path=config_path, cli_shutdown_event=_shutdown_requested)
+        # The app's on_mount will configure logging with the Textual handler.
         app.run()
         log.info("Interactive dashboard finished.")
+    except KeyboardInterrupt:
+        log.warning("Shutdown requested via KeyboardInterrupt during TUI run.")
+        click.echo("\nAborted!")
+        ctx.exit(1)
     except Exception as e:
         log.critical("The TUI application crashed unexpectedly.", error=str(e), exc_info=True)
-        click.echo(f"An unexpected error occurred in the TUI: {e}", err=True)
-        # Exit gracefully using Click's context, which raises a catchable SystemExit
+        click.echo(f"\nAn unexpected error occurred in the TUI: {e}", err=True)
         ctx.exit(1)
-
-    # The command function should end naturally after app.run() completes.
-    # The app's own quit action handles raising SystemExit.
-
 
 # 🔼⚙️

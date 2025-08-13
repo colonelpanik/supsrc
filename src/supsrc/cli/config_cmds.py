@@ -1,9 +1,4 @@
-#
-# supsrc/cli/config_cmds.py
-#
-"""
-CLI commands related to configuration management for supsrc.
-"""
+# src/supsrc/cli/config_cmds.py
 
 from pathlib import Path
 
@@ -20,7 +15,7 @@ from supsrc.telemetry import StructLogger  # Import type hint
 
 # Import rich if available for pretty printing
 try:
-    import rich.pretty
+    from rich.pretty import pretty_repr
 
     RICH_AVAILABLE = True
 except ImportError:
@@ -57,8 +52,6 @@ def show_config(ctx: click.Context, config_path: Path, **kwargs):  # Add **kwarg
         local_log_level=kwargs.get("log_level"),
         local_log_file=kwargs.get("log_file"),
         local_json_logs=kwargs.get("json_logs"),
-        local_file_only_logs=kwargs.get("file_only_logs"),
-        # default_log_level can be omitted to use the one from utils.py or set by main cli
     )
     log.info("Executing 'config show' command", config_path=str(config_path))
 
@@ -68,10 +61,18 @@ def show_config(ctx: click.Context, config_path: Path, **kwargs):  # Add **kwarg
         log.debug("Configuration loaded successfully by 'show' command.")
 
         if RICH_AVAILABLE:
-            rich.pretty.pprint(config, expand_all=True)
+            # Generate a rich-formatted string and echo it for testability.
+            output_str = pretty_repr(config, expand_all=True)
+            click.echo(output_str)
         else:
             # Basic fallback pretty print
-            pass
+            import pprint
+            import io
+
+            with io.StringIO() as buffer:
+                pprint.pprint(config, stream=buffer)
+                output_str = buffer.getvalue()
+            click.echo(output_str)
 
         # Check for disabled repos and inform user
         disabled_count = sum(1 for repo in config.repositories.values() if not repo._path_valid)
@@ -96,6 +97,5 @@ def show_config(ctx: click.Context, config_path: Path, **kwargs):  # Add **kwarg
         )
         click.echo(f"Error: An unexpected issue occurred: {e}", err=True)
         ctx.exit(2)
-
 
 # 🔼⚙️

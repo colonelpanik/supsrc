@@ -12,7 +12,6 @@ log = structlog.get_logger("cli.utils")
 
 LOG_LEVEL_CHOICES = click.Choice(list(logging._nameToLevel.keys()), case_sensitive=False)
 
-
 def logging_options(f):
     """Decorator to add logging options to any command."""
     f = click.option(
@@ -39,7 +38,6 @@ def logging_options(f):
     )(f)
     return f
 
-
 def setup_logging_from_context(
     ctx: click.Context,
     local_log_level: str | None = None,
@@ -61,13 +59,10 @@ def setup_logging_from_context(
         numeric_level = logging.INFO
         log_level_str = "INFO"
 
-    file_only = (tui_app_instance is not None) and (log_file_path is not None)
-
     core_setup_logging(
         level=numeric_level,
         json_logs=use_json_logs,
         log_file=log_file_path,
-        file_only=file_only,
         tui_app_instance=tui_app_instance,
         headless_mode=headless_mode,
     )
@@ -77,7 +72,7 @@ def setup_logging_from_context(
         level=log_level_str,
         file=log_file_path or "console",
         json=use_json_logs,
-        file_only=file_only,
+        tui_active=(tui_app_instance is not None),
         headless=headless_mode,
     )
 
