@@ -1,6 +1,5 @@
-#
-# engines/git/stage.py
-#
+# src/supsrc/engines/git/stage.py
+
 """
 Git staging logic (git add) using pygit2.
 """
@@ -12,7 +11,7 @@ import structlog
 
 from supsrc.protocols import StageResult
 
-from .errors import GitStageError
+from .exceptions import GitStageError  # Updated import
 from .runner import run_pygit2_async
 
 log = structlog.get_logger("engines.git.stage")
@@ -105,6 +104,5 @@ async def stage_git_changes(
         raise GitStageError(
             f"Failed to stage changes: {e}", repo_path=str(working_dir), details=e
         ) from e
-
 
 # 🔼⚙️

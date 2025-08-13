@@ -1,6 +1,5 @@
-#
 # src/supsrc/runtime/action_handler.py
-#
+
 """
 Handles the execution of the triggered action sequence for a repository.
 """
@@ -154,7 +153,6 @@ class ActionHandler:
             self.tui.post_state_update(self.repo_states)
 
         except Exception as e:
-            # This block now catches truly unexpected errors.
             action_log.critical("Unexpected error in action sequence", error=str(e), exc_info=True)
             if repo_state:
                 error_msg = f"Unexpected action failure: {e}"

@@ -1,6 +1,5 @@
-#
-# supsrc/engines/git/exceptions.py
-#
+# src/supsrc/engines/git/exceptions.py
+
 """
 Custom exceptions specific to the Git Engine for supsrc.
 """
@@ -33,32 +32,44 @@ class GitCommandError(GitEngineError):
     pass
 
 
-class PushRejectedError(GitCommandError):
-    """Raised specifically when a push operation is rejected."""
+class GitStatusError(GitCommandError):
+    """Error occurred while checking Git status."""
 
     pass
 
 
-class AuthenticationError(GitCommandError):
-    """Raised when authentication fails during a remote operation."""
+class GitStageError(GitCommandError):
+    """Error occurred during staging (git add)."""
 
     pass
 
 
-class NetworkError(GitCommandError):
-    """Raised for network-related issues during remote operations."""
+class GitCommitError(GitCommandError):
+    """Error occurred during commit."""
 
     pass
 
 
-class ConflictError(GitCommandError):
+class GitPushError(GitCommandError):
+    """Error occurred during push."""
+
+    pass
+
+
+class GitAuthenticationError(GitPushError):
+    """Specific error for authentication failures during push."""
+
+    pass
+
+
+class GitRemoteError(GitPushError):
+    """Error related to Git remotes (not found, connection issues etc.)."""
+
+    pass
+
+
+class GitConflictError(GitStatusError):
     """Raised when an operation cannot proceed due to merge conflicts."""
-
-    pass
-
-
-class NoRemoteError(GitEngineError):
-    """Raised when the configured remote cannot be found."""
 
     pass
 

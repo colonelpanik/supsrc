@@ -1,6 +1,5 @@
-#
-# engines/git/push.py
-#
+# src/supsrc/engines/git/push.py
+
 """
 Enhanced Git push logic with improved authentication and error handling.
 """
@@ -14,7 +13,7 @@ from supsrc.protocols import PushResult
 from supsrc.telemetry import StructLogger
 
 from .credentials import GitCredentialManager, RemoteCallbacks
-from .errors import GitAuthenticationError, GitPushError, GitRemoteError
+from .exceptions import GitAuthenticationError, GitPushError, GitRemoteError  # Updated import
 from .runner import run_pygit2_async
 
 log: StructLogger = structlog.get_logger("engines.git.push")
@@ -125,6 +124,5 @@ async def perform_git_push(
         raise GitPushError(
             f"Push failed unexpectedly: {e}", repo_path=str(working_dir), details=e
         ) from e
-
 
 # 🚀🔐

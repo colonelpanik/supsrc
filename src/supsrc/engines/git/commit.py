@@ -1,6 +1,5 @@
-#
-# engines/git/commit.py
-#
+# src/supsrc/engines/git/commit.py
+
 """
 Git commit logic using pygit2, including basic templating.
 """
@@ -14,7 +13,7 @@ import structlog
 from supsrc.protocols import CommitResult
 from supsrc.state import RepositoryState  # Needed for potential template vars
 
-from .errors import GitCommitError
+from .exceptions import GitCommitError  # Updated import
 from .runner import run_pygit2_async
 
 log = structlog.get_logger("engines.git.commit")
@@ -179,6 +178,5 @@ async def perform_git_commit(
         if isinstance(e, GitCommitError):
             raise
         raise GitCommitError(f"Failed to commit: {e}", repo_path=str(working_dir), details=e) from e
-
 
 # 🔼⚙️

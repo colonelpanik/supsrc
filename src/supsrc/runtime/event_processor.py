@@ -46,7 +46,6 @@ class EventProcessor:
         self.repo_states = repo_states
         self.tui = tui
         self._action_tasks: set[asyncio.Task] = set()
-        # Cache to track source paths of 'moved' events to de-duplicate delete events.
         self._recent_moves: Set[Path] = set()
         log.debug("EventProcessor initialized.")
 
@@ -72,7 +71,6 @@ class EventProcessor:
                 if event is None:
                     continue
 
-                # Handle special config change event
                 if event.repo_id == "__config__":
                     log.info("Configuration change event received, triggering reload.")
                     asyncio.create_task(self.orchestrator.reload_config())
@@ -92,19 +90,14 @@ class EventProcessor:
                     await asyncio.sleep(1)
                     continue
 
-                # --- Move/Rename De-duplication Logic ---
                 if event.event_type == "moved":
-                    # When a file is moved, cache its original path briefly.
                     src_path = event.src_path
                     self._recent_moves.add(src_path)
-                    # Schedule removal from cache after a short delay.
                     loop.call_later(0.5, self._recent_moves.discard, src_path)
                     log.debug("Cached move source to prevent duplicate delete event", path=str(src_path))
                 elif event.event_type == "deleted" and event.src_path in self._recent_moves:
-                    # If a delete event arrives for a path we just moved, ignore it.
                     log.debug("Ignoring duplicate delete event for a moved file", path=str(event.src_path))
                     continue
-                # --- End De-duplication Logic ---
 
                 repo_state.record_change()
                 self.tui.post_state_update(self.repo_states)

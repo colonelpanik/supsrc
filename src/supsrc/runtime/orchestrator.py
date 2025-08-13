@@ -1,6 +1,5 @@
-#
 # src/supsrc/runtime/orchestrator.py
-#
+
 """
 High-level coordinator for the supsrc watch process.
 Manages lifecycle of all runtime components.
@@ -23,7 +22,6 @@ from supsrc.protocols import RepositoryEngine
 from supsrc.state import RepositoryState, RepositoryStatus
 from supsrc.telemetry import StructLogger
 
-# Import new runtime components
 from .action_handler import ActionHandler
 from .event_processor import EventProcessor
 from .tui_interface import TUIInterface
@@ -62,26 +60,24 @@ class WatchOrchestrator:
         self.monitor_service: MonitoringService | None = None
         self.event_processor: EventProcessor | None = None
         self.config: SupsrcConfig | None = None
-        self._is_paused = False  # Internal pause state for config reload
-        self.config_observer: Observer | None = None  # For config file watching
+        self._is_paused = False
+        self.config_observer: Observer | None = None
 
     async def run(self) -> None:
         """Main execution method: setup, run, and cleanup."""
         log.info("Orchestrator run sequence starting.")
         processor_task = None
-        tui = TUIInterface(self.app)  # Initialize TUI interface early for error reporting
+        tui = TUIInterface(self.app)
 
         try:
-            # 1. Load Config Asynchronously
             try:
                 self.config = await asyncio.to_thread(load_config, self.config_path)
             except ConfigurationError as e:
                 log.critical("Failed to load or validate config", error=str(e), exc_info=True)
                 tui.post_log_update(None, "CRITICAL", f"Config Error: {e}")
-                await asyncio.sleep(0.1)  # Allow TUI to display the message
+                await asyncio.sleep(0.1)
                 return
 
-            # 2. Initialize Components
             enabled_repos = await self._initialize_repositories(self.config, tui)
             
             action_handler = ActionHandler(self.config, self.repo_states, self.repo_engines, tui)
@@ -89,7 +85,6 @@ class WatchOrchestrator:
                 self, self.config, self.event_queue, self.shutdown_event, action_handler, self.repo_states, tui
             )
 
-            # 3. Setup and Start Monitoring (for repos and config file)
             self.monitor_service = self._setup_monitoring(self.config, enabled_repos, tui)
             if self.monitor_service:
                 try:
@@ -109,7 +104,6 @@ class WatchOrchestrator:
                     log.critical("Failed to start configuration file watcher", error=str(e), exc_info=True)
                     tui.post_log_update(None, "CRITICAL", f"FATAL: Config watcher failed to start: {e}")
 
-            # 4. Start Event Processor and wait for it to complete
             log.info("Starting event processor task.")
             processor_task = asyncio.create_task(self.event_processor.run())
             await processor_task
@@ -133,28 +127,23 @@ class WatchOrchestrator:
             log.info("Orchestrator cleanup complete.")
 
     def pause_monitoring(self) -> None:
-        """Globally pauses processing of new events."""
         log.info("Pausing all event processing.")
         self._is_paused = True
         for state in self.repo_states.values():
-            if not state.is_stopped: # Don't override stopped state
+            if not state.is_stopped:
                 state.is_paused = True
                 state._update_display_emoji()
         self._post_tui_state_update()
 
     def suspend_monitoring(self) -> None:
-        """Suspends monitoring by stopping the watchdog observer."""
         log.warning("Suspending filesystem monitoring service.")
         if self.monitor_service and self.monitor_service.is_running:
-            # Run stop in a new task to avoid blocking the TUI event loop
             asyncio.create_task(self.monitor_service.stop())
 
     def resume_monitoring(self) -> None:
-        """Resumes monitoring from a paused or suspended state."""
         log.info("Resuming event processing and monitoring.")
         self._is_paused = False
         
-        # Restart the monitoring service if it was suspended
         if self.config and self.monitor_service and not self.monitor_service.is_running:
             log.info("Restarting suspended monitoring service...")
             tui = TUIInterface(self.app)
@@ -165,7 +154,6 @@ class WatchOrchestrator:
             if self.monitor_service:
                 self.monitor_service.start()
         
-        # Un-pause all individual repositories and update their UI state
         for state in self.repo_states.values():
             if state.is_paused:
                 state.is_paused = False
@@ -173,7 +161,6 @@ class WatchOrchestrator:
         self._post_tui_state_update()
 
     def setup_config_watcher(self, tui: TUIInterface) -> None:
-        """Sets up a watchdog observer to monitor the configuration file for changes."""
         loop = asyncio.get_running_loop()
 
         class ConfigChangeHandler(FileSystemEventHandler):
@@ -185,10 +172,7 @@ class WatchOrchestrator:
                 if str(Path(event.src_path).resolve()) == self._config_path_str:
                     log.info("Configuration file modified, queueing reload event.")
                     monitored_event = MonitoredEvent(
-                        repo_id="__config__",
-                        event_type="modified",
-                        src_path=self._orchestrator.config_path,
-                        is_directory=False,
+                        repo_id="__config__", event_type="modified", src_path=self._orchestrator.config_path, is_directory=False
                     )
                     loop.call_soon_threadsafe(self._orchestrator.event_queue.put_nowait, monitored_event)
 
@@ -204,20 +188,17 @@ class WatchOrchestrator:
             self.config_observer = None
 
     def toggle_repository_pause(self, repo_id: str) -> bool:
-        """Toggles the pause state for a single repository."""
         repo_state = self.repo_states.get(repo_id)
         if not repo_state:
             log.warning("Attempted to toggle pause on non-existent repo state", repo_id=repo_id)
             return False
 
         repo_state.is_paused = not repo_state.is_paused
-        repo_state._update_display_emoji() # This will set the correct emoji
-        
+        repo_state._update_display_emoji()
         log.info("Toggled repository pause state", repo_id=repo_id, paused=repo_state.is_paused)
         return True
 
     async def toggle_repository_stop(self, repo_id: str) -> bool:
-        """Toggles the stopped state for a single repository, adding/removing it from the monitor."""
         repo_state = self.repo_states.get(repo_id)
         if not self.config or not (repo_config := self.config.repositories.get(repo_id)):
             log.warning("Attempted to toggle stop on non-existent repo config", repo_id=repo_id)
@@ -249,30 +230,26 @@ class WatchOrchestrator:
         
         repo_state._update_display_emoji()
         self._post_tui_state_update()
-        
         return True
 
     def _post_tui_state_update(self):
-        """Helper to post the current state to the TUI if active."""
         if self.app:
             tui = TUIInterface(self.app)
             tui.post_state_update(self.repo_states)
 
     async def reload_config(self) -> bool:
-        """Stops monitoring, reloads config, re-initializes, and resumes."""
         log.info("Reloading configuration...")
         self._is_paused = True
         tui = TUIInterface(self.app)
         tui.post_log_update(None, "INFO", "Pausing all monitoring for config reload...")
         self._post_tui_state_update()
 
-        # Stop repository monitoring
         if self.monitor_service and self.monitor_service.is_running:
             await self.monitor_service.stop()
             self.monitor_service.clear_handlers()
 
         try:
-            await asyncio.sleep(1) # Brief pause
+            await asyncio.sleep(1)
             new_config = await asyncio.to_thread(load_config, self.config_path)
             self.config = new_config
             if self.event_processor:
@@ -280,7 +257,6 @@ class WatchOrchestrator:
 
             self.repo_states.clear()
             self.repo_engines.clear()
-            
             enabled_repos = await self._initialize_repositories(self.config, tui)
             
             if not enabled_repos:
@@ -295,7 +271,6 @@ class WatchOrchestrator:
             
             log.info("Configuration reloaded and monitoring restarted.")
             return True
-
         except ConfigurationError as e:
             log.error("Failed to reload configuration", error=str(e), exc_info=True)
             tui.post_log_update(None, "ERROR", f"Config reload failed: {e}")
@@ -305,7 +280,6 @@ class WatchOrchestrator:
             self._post_tui_state_update()
 
     async def _initialize_repositories(self, config: SupsrcConfig, tui: TUIInterface) -> list[str]:
-        """Populates state and engine dictionaries from configuration, with added resilience."""
         log.info("Initializing repositories...")
         tui.post_log_update(None, "INFO", "Initializing repositories...")
         enabled_repo_ids = []
@@ -320,7 +294,6 @@ class WatchOrchestrator:
             self.repo_states[repo_id] = repo_state
 
             try:
-                # Step 1: Load Engine
                 engine_type = repo_config.repository.get("type", "supsrc.engines.git")
                 init_log.debug("Attempting to load engine", engine_type=engine_type)
                 if engine_type == "supsrc.engines.git":
@@ -329,12 +302,10 @@ class WatchOrchestrator:
                     raise NotImplementedError(f"Engine '{engine_type}' not supported.")
                 init_log.debug("Engine loaded successfully")
 
-                # Step 2: Set Rule Info
                 rule_type_str = getattr(repo_config.rule, "type", "default")
                 repo_state.rule_emoji = RULE_EMOJI_MAP.get(rule_type_str, RULE_EMOJI_MAP["default"])
                 repo_state.rule_dynamic_indicator = rule_type_str.split(".")[-1].replace("_", " ").capitalize()
 
-                # Step 3: Get Initial Summary
                 engine = self.repo_engines[repo_id]
                 if hasattr(engine, "get_summary"):
                     init_log.debug("Getting initial repository summary")
@@ -355,7 +326,6 @@ class WatchOrchestrator:
                         init_log.warning("Could not determine initial HEAD commit.", summary_details=summary)
 
                 enabled_repo_ids.append(repo_id)
-
             except Exception as e:
                 init_log.error("Failed to initialize repository", error=str(e), exc_info=True)
                 repo_state.update_status(RepositoryStatus.ERROR, f"Initialization failed: {e}")
@@ -366,7 +336,6 @@ class WatchOrchestrator:
         return enabled_repo_ids
 
     def _setup_monitoring(self, config: SupsrcConfig, enabled_repo_ids: list[str], tui: TUIInterface) -> MonitoringService | None:
-        """Creates and configures the MonitoringService."""
         if not enabled_repo_ids:
             return None
 
@@ -393,20 +362,17 @@ class WatchOrchestrator:
         return service
 
     async def resume_repository_monitoring(self, repo_id: str) -> bool:
-        """Resumes monitoring for a repository (unpauses and unstops it)."""
         repo_state = self.repo_states.get(repo_id)
         if not repo_state:
             return False
 
-        # Unpause if paused
         if repo_state.is_paused:
             repo_state.is_paused = False
             repo_state.pause_until = None
             log.info(f"Repository {repo_id} unpaused.")
 
-        # Unstop if stopped
         if repo_state.is_stopped:
-            success = await self.toggle_repository_stop(repo_id) # This will re-schedule
+            success = await self.toggle_repository_stop(repo_id)
             if not success:
                 log.error(f"Failed to unstop {repo_id} during resume.")
                 return False
@@ -416,7 +382,6 @@ class WatchOrchestrator:
         return True
 
     async def get_repository_details(self, repo_id: str) -> dict[str, Any]:
-        """Provides an external API for the TUI to query commit history."""
         log.debug("Fetching repository details for TUI", repo_id=repo_id)
         repo_engine = self.repo_engines.get(repo_id)
         repo_config = self.config.repositories.get(repo_id) if self.config else None
@@ -433,5 +398,4 @@ class WatchOrchestrator:
                 return {"commit_history": [f"[bold red]Error fetching history: {e}[/]"]}
 
         return {"commit_history": ["Details not available for this engine type."]}
-    
-    
+
