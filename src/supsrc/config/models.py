@@ -5,25 +5,20 @@
 Attrs-based data models for supsrc configuration structure.
 """
 
-import logging  # Still needed for level names
+import logging
 from collections.abc import Mapping
 from datetime import timedelta
 from pathlib import Path
-from typing import (  # Added Mapping
-    Any,
-    TypeAlias,
-)
+from typing import Any, TypeAlias
 
 from attrs import define, field, mutable
 
+
 # --- Validators (can stay here or move to a validators module) ---
-
-
 def _validate_log_level(inst: Any, attr: Any, value: str) -> None:
     """Validator for standard logging level names."""
     valid = logging._nameToLevel.keys()
     if value.upper() not in valid:
-        # Note: Raising validation error here is fine, structlog logger isn't needed
         raise ValueError(f"Invalid log_level '{value}'. Must be one of {list(valid)}.")
 
 
@@ -34,79 +29,78 @@ def _validate_positive_int(inst: Any, attr: Any, value: int) -> None:
 
 
 # --- attrs Data Classes for Rules ---
-# Define the structure for different rule types.
-# The 'type' literal should match the key used for loading (e.g., built-in path or plugin key)
-
-
 @define(slots=True)
-class InactivityRuleConfig:  # Renamed from InactivityTrigger for clarity as config object
+class InactivityRuleConfig:
     """Configuration for the inactivity rule."""
-
-    # Type can be validated during plugin loading if needed, or assume correct here
-    # Use kw_only=True so 'type' isn't required during cattrs structuring if hook handles it
     type: str = field(default="supsrc.rules.inactivity", kw_only=True)
     period: timedelta = field()
 
 
 @define(slots=True)
-class SaveCountRuleConfig:  # Renamed from SaveCountTrigger
+class SaveCountRuleConfig:
     """Configuration for the save count rule."""
-
     type: str = field(default="supsrc.rules.save_count", kw_only=True)
     count: int = field(validator=_validate_positive_int)
 
 
 @define(slots=True)
-class ManualRuleConfig:  # Renamed from ManualTrigger
+class ManualRuleConfig:
     """Configuration for the manual rule."""
-
     type: str = field(default="supsrc.rules.manual", kw_only=True)
 
 
-# Type alias for the union of rule configuration types
-# cattrs will use this union to structure the 'rule' section based on 'type' using the registered hook
 RuleConfig: TypeAlias = InactivityRuleConfig | SaveCountRuleConfig | ManualRuleConfig
 
+
+# --- New LLM Configuration Model ---
+@define(frozen=True, slots=True)
+class LLMConfig:
+    """Configuration for optional LLM features."""
+    enabled: bool = field(default=False)
+    provider: str = field(default="gemini")
+    model: str = field(default="gemini-1.5-flash")
+    api_key_env_var: str | None = field(default="GEMINI_API_KEY")
+
+    # Feature Flags
+    generate_commit_message: bool = field(default=True)
+    use_conventional_commit: bool = field(default=True)
+    review_changes: bool = field(default=True)
+    run_tests: bool = field(default=True)
+    analyze_test_failures: bool = field(default=True)
+    generate_change_fragment: bool = field(default=False)
+
+    # Configurable settings
+    test_command: str | None = field(default=None)
+    change_fragment_dir: str | None = field(default="changes")
+
+
 # --- Repository and Global Config Models ---
-
-
 @mutable(slots=True)
 class RepositoryConfig:
     """
     Configuration for a repository. Mutable to allow disabling on load if path invalid.
     """
-
-    # Mandatory fields first
     path: Path = field()
-    # This field will hold the structured rule config object (e.g., InactivityRuleConfig)
-    rule: RuleConfig = field()  # Holds the specific structured rule config
-    # Holds the raw dictionary from the TOML [repositories.*.repository] section for the engine to parse.
+    rule: RuleConfig = field()
     repository: Mapping[str, Any] = field(factory=dict)
-
-    # Optional fields after
     enabled: bool = field(default=True)
-
-    # Internal state flag
+    llm: LLMConfig | None = field(default=None)  # Added LLM config
     _path_valid: bool = field(default=True, repr=False, init=False)
 
 
 @define(frozen=True, slots=True)
 class GlobalConfig:
     """Global default settings for supsrc."""
-
     log_level: str = field(default="INFO", validator=_validate_log_level)
-    # Defaults removed - handled by env vars or engine defaults
 
     @property
     def numeric_log_level(self) -> int:
-        """Return the numeric logging level."""
         return logging.getLevelName(self.log_level.upper())
 
 
 @define(frozen=True, slots=True)
 class SupsrcConfig:
     """Root configuration object for the supsrc application."""
-
     repositories: dict[str, RepositoryConfig] = field(factory=dict)
     global_config: GlobalConfig = field(factory=GlobalConfig, metadata={"toml_name": "global"})
 

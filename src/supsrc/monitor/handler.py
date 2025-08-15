@@ -24,12 +24,43 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger("monitor.handler")
 
-# Define parts of the .git directory to always ignore
-GIT_DIR_PARTS = (
-    f"{os.sep}.git{os.sep}",
-    f"{os.sep}.git",
-)
 
+# --- NEW: Default ignore patterns to prevent feedback loops ---
+DEFAULT_IGNORE_PATTERNS = [
+    # Python
+    "__pycache__/",
+    ".pytest_cache/",
+    ".venv/",
+    "venv/",
+    "env/",
+    "*.pyc",
+    "*.pyo",
+    "*.pyd",
+
+    # Node.js / TypeScript
+    "node_modules/",
+    "dist/",
+    "build/",
+    ".next/",
+    ".nuxt/",
+    "*.tsbuildinfo",
+    "npm-debug.log*",
+    "yarn-error.log*",
+    "yarn.lock", # Often generated but not always committed, can be noisy
+    "pnpm-lock.yaml",
+
+    # Go
+    "bin/",
+
+    # Rust
+    "target/",
+
+    # General / Secrets / Logs
+    ".env",
+    ".env.local",
+    ".env.*",
+    "*.log",
+]
 
 class SupsrcEventHandler(FileSystemEventHandler):
     """
@@ -48,12 +79,6 @@ class SupsrcEventHandler(FileSystemEventHandler):
     ):
         """
         Initializes the event handler for a specific repository.
-
-        Args:
-            repo_id: The unique identifier for the repository.
-            repo_path: The absolute Path object to the repository root.
-            event_queue: The asyncio Queue to put filtered MonitoredEvent objects onto.
-            loop: The asyncio event loop the consumer task is running on.
         """
         super().__init__()
         self.repo_id = repo_id
@@ -61,121 +86,101 @@ class SupsrcEventHandler(FileSystemEventHandler):
         self.event_queue = event_queue
         self.loop = loop
         self.logger = log.bind(repo_id=repo_id, repo_path=str(repo_path))
+        
+        # --- MODIFIED: Load both default and gitignore specs ---
+        self.default_spec = pathspec.PathSpec.from_lines(
+            pathspec.patterns.GitWildMatchPattern, DEFAULT_IGNORE_PATTERNS
+        )
         self.gitignore_spec: pathspec.PathSpec | None = self._load_gitignore()
+        # --- END MODIFICATION ---
 
         self.logger.debug("Initialized event handler")
 
     def _load_gitignore(self) -> pathspec.PathSpec | None:
         """Loads and parses the .gitignore file for the repository."""
         gitignore_path = self.repo_path / ".gitignore"
-        spec = None
         if gitignore_path.is_file():
             try:
                 with open(gitignore_path, encoding="utf-8") as f:
-                    spec = pathspec.PathSpec.from_lines(pathspec.patterns.GitWildMatchPattern, f)
+                    # Combine default patterns with user-defined gitignore
+                    lines = f.readlines()
+                spec = pathspec.PathSpec.from_lines(pathspec.patterns.GitWildMatchPattern, lines)
                 self.logger.info("Loaded .gitignore patterns", path=str(gitignore_path))
-            except OSError as e:
-                self.logger.error(
-                    "Failed to read .gitignore file",
-                    path=str(gitignore_path),
-                    error=str(e),
-                )
+                return spec
             except Exception as e:
-                self.logger.error(
-                    "Failed to parse .gitignore file",
-                    path=str(gitignore_path),
-                    error=str(e),
-                    exc_info=True,
-                )
-        else:
-            self.logger.debug(".gitignore file not found, no ignore patterns loaded.")
-        return spec
+                self.logger.error("Failed to load or parse .gitignore", path=str(gitignore_path), error=str(e))
+        return None
 
     def _is_ignored(self, file_path: Path) -> bool:
-        """Checks if a given absolute path should be ignored."""
-        norm_path_str = os.path.normpath(str(file_path))
-        repo_path_str = os.path.normpath(str(self.repo_path))
-        if norm_path_str.startswith(
-            os.path.join(repo_path_str, ".git") + os.sep
-        ) or norm_path_str == os.path.join(repo_path_str, ".git"):
+        """Checks if a given absolute path should be ignored by any rule."""
+        # Always ignore the .git directory itself
+        if ".git" in file_path.parts:
             self.logger.debug("Ignoring event inside .git directory", path=str(file_path))
             return True
 
-        if self.gitignore_spec:
-            try:
-                relative_path = file_path.relative_to(self.repo_path)
-                if self.gitignore_spec.match_file(str(relative_path)):
-                    self.logger.debug("Ignoring event due to .gitignore match", path=str(file_path))
-                    return True
-            except ValueError:
-                self.logger.debug("Event path not relative to repo path, ignoring", path=str(file_path))
-                return True  # Ignore paths outside the repo being watched
+        try:
+            relative_path = file_path.relative_to(self.repo_path)
+        except ValueError:
+            # Path is not within the repository root, so we should ignore it.
+            self.logger.debug("Event path not relative to repo path, ignoring", path=str(file_path))
+            return True
+
+        # --- MODIFIED: Check both default spec and .gitignore spec ---
+        if self.default_spec.match_file(str(relative_path)):
+            self.logger.debug("Ignoring event due to default supsrc ignore match", path=str(file_path))
+            return True
+
+        if self.gitignore_spec and self.gitignore_spec.match_file(str(relative_path)):
+            self.logger.debug("Ignoring event due to .gitignore match", path=str(file_path))
+            return True
+        # --- END MODIFICATION ---
+
         return False
 
     def _queue_event_threadsafe(self, monitored_event: MonitoredEvent):
         """Target function for call_soon_threadsafe to put item in queue."""
         try:
             self.event_queue.put_nowait(monitored_event)
-            # Logging from the handler thread might be slightly delayed relative to event processing now
             self.logger.info(
                 "Queued filesystem event (via threadsafe)",
                 event_type=monitored_event.event_type,
                 path=str(monitored_event.src_path),
-                is_dir=monitored_event.is_directory,
-                dest=str(monitored_event.dest_path) if monitored_event.dest_path else None,
             )
         except asyncio.QueueFull:
-            self.logger.error(
-                "Event queue is full, discarding event. Consumer might be blocked.",
-                event_details=monitored_event,
-            )
+            self.logger.error("Event queue is full, discarding event.")
         except Exception as e:
-            self.logger.error(
-                "Unexpected error queuing event via threadsafe call",
-                error=str(e),
-                exc_info=True,
-                event_details=monitored_event,
-            )
+            self.logger.error("Unexpected error queuing event", error=str(e), exc_info=True)
 
     def _process_and_queue_event(self, event: FileSystemEvent):
-        """Processes, filters, and queues a watchdog event using thread-safe mechanism."""
-        event_type = event.event_type
-        src_path_str = event.src_path
-        dest_path_str = getattr(event, "dest_path", None)
-
-        if event.is_directory and event_type == "modified":
-            self.logger.debug("Ignoring noisy directory modification event", path=src_path_str)
+        """Processes, filters, and queues a watchdog event."""
+        # Ignore noisy directory modification events
+        if event.is_directory and event.event_type == "modified":
             return
 
         try:
-            src_path = Path(src_path_str).resolve()
-            dest_path = Path(dest_path_str).resolve() if dest_path_str else None
-        except Exception as e:
-            self.logger.error(
-                "Failed to resolve event path(s)",
-                src=src_path_str,
-                dest=dest_path_str,
-                error=str(e),
-            )
-            return
-
-        if src_path.name == ".gitignore":
-            self.logger.debug("Ignoring .gitignore file event", path=str(src_path))
+            src_path = Path(event.src_path).resolve()
+        except (FileNotFoundError, RuntimeError):
+            # The file might be gone before we can resolve it, especially with temp files.
+            self.logger.debug("Could not resolve path for event, likely a transient file.", src_path=event.src_path)
             return
 
         if self._is_ignored(src_path):
             return
 
-        if event_type == "moved" and dest_path and self._is_ignored(dest_path):
-            self.logger.debug(
-                "Ignoring 'moved' event, destination is ignored",
-                dest_path=str(dest_path),
-            )
-            return
+        dest_path = None
+        if event.event_type == "moved":
+            try:
+                dest_path = Path(getattr(event, "dest_path", None)).resolve()
+                if self._is_ignored(dest_path):
+                    self.logger.debug("Ignoring 'moved' event, destination is ignored", dest_path=str(dest_path))
+                    return
+            except (FileNotFoundError, RuntimeError):
+                 self.logger.debug("Could not resolve moved dest_path", dest_path=getattr(event, "dest_path", None))
+                 return # Ignore if destination is gone
 
         monitored_event = MonitoredEvent(
             repo_id=self.repo_id,
-            event_type=event_type,
+            event_type=event.event_type,
             src_path=src_path,
             is_directory=event.is_directory,
             dest_path=dest_path,
@@ -183,14 +188,7 @@ class SupsrcEventHandler(FileSystemEventHandler):
 
         if self.loop.is_running():
             self.loop.call_soon_threadsafe(self._queue_event_threadsafe, monitored_event)
-        else:
-            # Should not happen if orchestrator is running, but log as warning
-            self.logger.warning(
-                "Event loop not running, cannot queue event threadsafe.",
-                event=monitored_event,
-            )
 
-    # Override watchdog methods to call the processing function
     def on_created(self, event: FileSystemEvent):
         self._process_and_queue_event(event)
 
@@ -202,6 +200,5 @@ class SupsrcEventHandler(FileSystemEventHandler):
 
     def on_moved(self, event: FileSystemEvent):
         self._process_and_queue_event(event)
-
 
 # 🔼⚙️
