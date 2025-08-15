@@ -15,7 +15,7 @@ authors = [
 maintainers = [
     { name = "provide.io", email = "code@provide.io" },
 ]
-keywords = ["git", "automation", "watchdog", "developer-tools", "vcs", "backup"]
+keywords = ["git", "automation", "watchdog", "developer-tools", "vcs", "backup", "llm"]
 classifiers = [
     "Development Status :: 3 - Alpha", # Adjust as appropriate
     "Environment :: Console",
@@ -46,6 +46,7 @@ dependencies = [
     "sshconf>=0.2.7",
     "rich>=13.7.1",
     "aioconsole>=0.8.1",
+    "packaging>=24.0",
 ]
 
 [project.urls]
@@ -68,8 +69,8 @@ dev = [
     "freezegun>=1.5.1",
     # BDD (if used)
     "behave>=1.2.6",
-    # Include TUI deps for testing TUI features
-    "supsrc[tui]",
+    # Include TUI and LLM deps for testing all features
+    "supsrc[tui,llm]",
     "pytest-xdist>=3.8.0",
 ]
 
@@ -78,6 +79,11 @@ dev = [
 tui = [
     "textual>=0.70.0", # Use a recent stable version
 ]
+llm = [
+    "google-generativeai>=0.5.0",
+    "ollama>=0.2.0",
+]
+
 
 [project.scripts]
 supsrc = "supsrc.cli.main:cli"
@@ -100,10 +106,10 @@ allow-direct-references = true
 #path = "hatch_hooks.py" # Requires creating this file
 
 [tool.hatch.envs.default]
-description = "Default development environment (includes dev & tui extras)"
+description = "Default development environment (includes dev, tui, llm extras)"
 # Hatch automatically installs the project with its core dependencies.
 # It should also install 'dev' extras by default based on common conventions,
-# which now implicitly pulls in 'supsrc[tui]'.
+# which now implicitly pulls in 'supsrc[tui,llm]'.
 # Adding explicit dependencies here is usually for tools *not* part of the project's deps.
 # dependencies = []
 skip-install = false
