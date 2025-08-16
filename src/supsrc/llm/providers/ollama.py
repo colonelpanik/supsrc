@@ -53,9 +53,12 @@ class OllamaProvider:
         try:
             response = await self.client.generate(model=self.model, prompt=prompt)
             return response["response"].strip()
+        except ollama.ResponseError as e:
+            log.error("Ollama API call failed", error=str(e.body), status_code=e.status_code, exc_info=True)
+            return f"Error: LLM generation failed. Status: {e.status_code}"
         except Exception as e:
-            log.error("Ollama API call failed", error=str(e), exc_info=True)
-            return f"Error: LLM generation failed. {e}"
+            log.error("An unexpected error occurred with the Ollama provider", error=str(e), exc_info=True)
+            return f"Error: An unexpected error occurred. {e}"
 
     async def generate_commit_message(self, diff: str, conventional: bool) -> str:
         log.debug("Generating commit message with Ollama", conventional=conventional)
