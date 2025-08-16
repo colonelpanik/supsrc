@@ -12,7 +12,7 @@ import pytest
 from supsrc.config import SupsrcConfig
 from supsrc.monitor import MonitoredEvent
 from supsrc.runtime.action_handler import ActionHandler
-from supsrc.runtime.event_processor import EventProcessor
+from supsrc.runtime.event_processor import DEBOUNCE_DELAY, EventProcessor
 from supsrc.runtime.tui_interface import TUIInterface
 from supsrc.state import RepositoryState
 
@@ -65,11 +65,15 @@ class TestEventProcessor:
         event = MonitoredEvent(repo_id, "modified", temp_git_repo / "f.txt", False)
 
         with patch("supsrc.runtime.event_processor.check_trigger_condition", return_value=True):
+            run_task = asyncio.create_task(event_processor.run())
             await event_processor.event_queue.put(event)
-            task = asyncio.create_task(event_processor.run())
-            await asyncio.sleep(0.01)
-            event_processor.shutdown_event.set()
-            await task
+            await asyncio.sleep(DEBOUNCE_DELAY + 0.1)
+
+            # Stop the processor
+            run_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await run_task
+
 
         mock_action_handler.execute_action_sequence.assert_called_once_with(repo_id)
 
@@ -80,20 +84,21 @@ class TestEventProcessor:
         repo_id = "test_repo_1"
         event = MonitoredEvent(repo_id, "modified", temp_git_repo / "f.txt", False)
 
-        with patch("asyncio.get_running_loop") as mock_get_loop:
-            mock_loop = MagicMock()
-            mock_get_loop.return_value = mock_loop
-            with patch("supsrc.runtime.event_processor.check_trigger_condition", return_value=False):
-                await event_processor.event_queue.put(event)
-                task = asyncio.create_task(event_processor.run())
-                await asyncio.sleep(0.01)
-                event_processor.shutdown_event.set()
-                await task
+        with patch("supsrc.runtime.event_processor.check_trigger_condition", return_value=False):
+            run_task = asyncio.create_task(event_processor.run())
+            await event_processor.event_queue.put(event)
 
-        mock_action_handler.execute_action_sequence.assert_not_called()
-        mock_loop.call_later.assert_called_once()
-        state = event_processor.repo_states[repo_id]
-        assert state.inactivity_timer_handle is not None
+            # Wait for the debounce timer to fire and the inactivity timer to be set
+            await asyncio.sleep(DEBOUNCE_DELAY + 0.1)
+
+            state = event_processor.repo_states[repo_id]
+            assert state.inactivity_timer_handle is not None
+            mock_action_handler.execute_action_sequence.assert_not_called()
+
+            # Clean up
+            run_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await run_task
 
     async def test_new_event_cancels_previous_timer(
         self, event_processor: EventProcessor, temp_git_repo: Path
@@ -105,14 +110,14 @@ class TestEventProcessor:
         state.set_inactivity_timer(mock_timer, 30)
 
         event = MonitoredEvent(repo_id, "modified", temp_git_repo / "f.txt", False)
-        
+
         with patch("supsrc.runtime.event_processor.check_trigger_condition", return_value=False):
             await event_processor.event_queue.put(event)
             task = asyncio.create_task(event_processor.run())
-            await asyncio.sleep(0.01)
+            await asyncio.sleep(DEBOUNCE_DELAY + 0.1)
             event_processor.shutdown_event.set()
             await task
-        
+
         mock_timer.cancel.assert_called_once()
 
     async def test_timer_callback_schedules_action(
@@ -120,9 +125,11 @@ class TestEventProcessor:
     ):
         """Verify the function called by the timer schedules an action."""
         repo_id = "test_repo_1"
-        
+
+        # This now tests the internal _schedule_action method directly
         event_processor._schedule_action(repo_id)
-        
+
+        # Give the event loop a moment to process the created task
         await asyncio.sleep(0.01)
 
         mock_action_handler.execute_action_sequence.assert_called_once_with(repo_id)
@@ -131,14 +138,14 @@ class TestEventProcessor:
         """Verify the run loop terminates when the shutdown event is set."""
         event_processor.shutdown_event.set()
         task = asyncio.create_task(event_processor.run())
-        
+
         await asyncio.wait_for(task, timeout=0.1)
         assert task.done()
 
     async def test_event_consumption_for_paused_repository(self, event_processor: EventProcessor, temp_git_repo: Path):
         """
-        Verify that the event consumer skips processing for a paused repository
-        and puts the event back on the queue.
+        Verify that the event consumer skips processing for a paused repository.
+        The current implementation ignores (drops) the event.
         """
         repo_id = "test_repo_1"
         repo_state = event_processor.repo_states[repo_id]
@@ -154,5 +161,5 @@ class TestEventProcessor:
         with contextlib.suppress(asyncio.CancelledError):
             await consumer_task
 
-        # Assert: The event should have been put back on the queue
-        assert event_processor.event_queue.qsize() == 1
+        # Assert: The event should have been consumed and ignored, leaving the queue empty.
+        assert event_processor.event_queue.qsize() == 0

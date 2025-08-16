@@ -33,7 +33,7 @@ def _clean_llm_output(raw_text: str) -> str:
         return match.group(1).strip()
 
     # If no markdown, find the last non-empty line, which is often the answer
-    lines = [line.strip() for line in raw_text.strip().split('\n')]
+    lines = [line.strip() for line in raw_text.strip().split("\n")]
     non_empty_lines = [line for line in lines if line]
     return non_empty_lines[-1] if non_empty_lines else raw_text
 

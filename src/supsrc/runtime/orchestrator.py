@@ -7,14 +7,14 @@ Manages lifecycle of all runtime components.
 
 import asyncio
 from pathlib import Path
-from typing import Any, Optional, TypeAlias, cast, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional, TypeAlias, cast
 
 import structlog
 from rich.console import Console
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from supsrc.config import load_config, SupsrcConfig
+from supsrc.config import SupsrcConfig, load_config
 from supsrc.engines.git import GitEngine, GitRepoSummary
 from supsrc.exceptions import ConfigurationError, MonitoringSetupError
 from supsrc.monitor import MonitoredEvent, MonitoringService
@@ -79,7 +79,7 @@ class WatchOrchestrator:
                 return
 
             enabled_repos = await self._initialize_repositories(self.config, tui)
-            
+
             action_handler = ActionHandler(self.config, self.repo_states, self.repo_engines, tui)
             self.event_processor = EventProcessor(
                 self, self.config, self.event_queue, self.shutdown_event, action_handler, self.repo_states, tui
@@ -119,7 +119,7 @@ class WatchOrchestrator:
 
             if self.monitor_service and self.monitor_service.is_running:
                 await self.monitor_service.stop()
-            
+
             if self.config_observer and self.config_observer.is_alive():
                 self.config_observer.stop()
                 self.config_observer.join()
@@ -138,12 +138,12 @@ class WatchOrchestrator:
     def suspend_monitoring(self) -> None:
         log.warning("Suspending filesystem monitoring service.")
         if self.monitor_service and self.monitor_service.is_running:
-            asyncio.create_task(self.monitor_service.stop())
+            asyncio.create_task(self.monitor_service.stop())  # noqa: RUF006
 
     def resume_monitoring(self) -> None:
         log.info("Resuming event processing and monitoring.")
         self._is_paused = False
-        
+
         if self.config and self.monitor_service and not self.monitor_service.is_running:
             log.info("Restarting suspended monitoring service...")
             tui = TUIInterface(self.app)
@@ -153,7 +153,7 @@ class WatchOrchestrator:
             self.monitor_service = self._setup_monitoring(self.config, enabled_repos, tui)
             if self.monitor_service:
                 self.monitor_service.start()
-        
+
         for state in self.repo_states.values():
             if state.is_paused:
                 state.is_paused = False
@@ -203,13 +203,13 @@ class WatchOrchestrator:
         if not self.config or not (repo_config := self.config.repositories.get(repo_id)):
             log.warning("Attempted to toggle stop on non-existent repo config", repo_id=repo_id)
             return False
-        
+
         if not repo_state:
             log.warning("Attempted to toggle stop on non-existent repo state", repo_id=repo_id)
             return False
 
         repo_state.is_stopped = not repo_state.is_stopped
-        
+
         if repo_state.is_stopped:
             log.info("Stopping monitoring for repository", repo_id=repo_id)
             if self.monitor_service:
@@ -227,7 +227,7 @@ class WatchOrchestrator:
                     repo_state.update_status(RepositoryStatus.ERROR, f"Failed to resume monitoring: {e}")
                     repo_state.is_stopped = True
                     return False
-        
+
         repo_state._update_display_emoji()
         self._post_tui_state_update()
         return True
@@ -258,7 +258,7 @@ class WatchOrchestrator:
             self.repo_states.clear()
             self.repo_engines.clear()
             enabled_repos = await self._initialize_repositories(self.config, tui)
-            
+
             if not enabled_repos:
                 log.warning("No enabled repositories after reload.")
                 tui.post_log_update(None, "WARNING", "Config reloaded, but no repositories are enabled.")
@@ -268,7 +268,7 @@ class WatchOrchestrator:
             if self.monitor_service:
                 self.monitor_service.start()
                 tui.post_log_update(None, "INFO", "Monitoring resumed with new configuration.")
-            
+
             log.info("Configuration reloaded and monitoring restarted.")
             return True
         except ConfigurationError as e:
@@ -342,7 +342,7 @@ class WatchOrchestrator:
         log.info("Setting up filesystem monitoring...")
         tui.post_log_update(None, "INFO", "Setting up filesystem monitoring...")
         service = MonitoringService(self.event_queue)
-        
+
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -357,7 +357,7 @@ class WatchOrchestrator:
                 if self.repo_states.get(repo_id):
                     self.repo_states[repo_id].update_status(RepositoryStatus.ERROR, "Monitor setup failed")
                     tui.post_log_update(repo_id, "ERROR", f"Monitoring setup failed: {e}")
-        
+
         tui.post_state_update(self.repo_states)
         return service
 

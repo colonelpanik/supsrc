@@ -185,6 +185,8 @@ class ActionHandler:
                 elif status_result.is_conflicted:
                     repo_state.update_status(RepositoryStatus.ERROR, "Repo has conflicts.")
                     repo_state.action_description = "Merge conflict detected."
+                    repo_state.is_frozen = True
+                    repo_state.freeze_reason = "Merge conflicts detected"
                 else: # is_clean
                     repo_state.reset_after_action()
                 self.tui.post_state_update(self.repo_states)
@@ -281,6 +283,9 @@ class ActionHandler:
                 )
                 if not push_result.success:
                     action_log.warning("Push failed", reason=push_result.message)
+                    self.tui.post_log_update(repo_id, "WARNING", f"Push failed: {push_result.message}")
+                elif push_result.skipped:
+                    self.tui.post_log_update(repo_id, "INFO", "Push skipped by configuration.")
 
                 repo_state.reset_after_action()
 

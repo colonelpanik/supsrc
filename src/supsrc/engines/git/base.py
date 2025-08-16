@@ -48,12 +48,8 @@ class GitEngine(RepositoryEngine):
     def _get_repo(self, working_dir: Path) -> pygit2.Repository:
         """Helper to get the pygit2 Repository object."""
         try:
-            repo_path = pygit2.discover_repository(str(working_dir))
-            if not repo_path:
-                raise pygit2.GitError(
-                    f"Not a Git repository (or any of the parent directories): {working_dir}"
-                )
-            repo = pygit2.Repository(repo_path)
+            # More robustly open the repository assuming working_dir is the root.
+            repo = pygit2.Repository(str(working_dir))
             return repo
         except pygit2.GitError as e:
             self._log.error("Failed to open Git repository", path=str(working_dir), error=str(e))
@@ -116,8 +112,7 @@ class GitEngine(RepositoryEngine):
             head_commit = head_ref.peel()
             commit_msg_summary = (head_commit.message or "").split("\n", 1)[0]
 
-            import datetime
-            commit_timestamp = datetime.fromtimestamp(head_commit.commit_time, tz=datetime.UTC)
+            commit_timestamp = datetime.fromtimestamp(head_commit.commit_time, tz=UTC)
 
             return {
                 "head_ref_name": head_ref.shorthand,
