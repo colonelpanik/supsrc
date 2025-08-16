@@ -115,9 +115,9 @@ class GitEngine(RepositoryEngine):
             head_ref = repo.head
             head_commit = head_ref.peel()
             commit_msg_summary = (head_commit.message or "").split("\n", 1)[0]
-            
-            from datetime import datetime, timezone
-            commit_timestamp = datetime.fromtimestamp(head_commit.commit_time, tz=timezone.utc)
+
+            import datetime
+            commit_timestamp = datetime.fromtimestamp(head_commit.commit_time, tz=datetime.UTC)
 
             return {
                 "head_ref_name": head_ref.shorthand,
@@ -145,7 +145,6 @@ class GitEngine(RepositoryEngine):
         global_config: GlobalConfig,
         working_dir: Path,
     ) -> RepoStatusResult:
-        
         def _blocking_get_status():
             status_log = self._log.bind(repo_id=state.repo_id, path=str(working_dir))
             repo = self._get_repo(working_dir)
@@ -285,7 +284,7 @@ class GitEngine(RepositoryEngine):
                 renamed.append(f"{delta.old_file.path} -> {delta.new_file.path}")
             elif delta.status == pygit2.GIT_DELTA_TYPECHANGE:
                 typechanged.append(path)
-        
+
         summary_lines = []
         if added:
             summary_lines.append(f"Added ({len(added)}):")
@@ -340,17 +339,19 @@ class GitEngine(RepositoryEngine):
             repo.index.read(force=True)  # Ensure index is fresh from disk
 
             is_unborn = repo.head_is_unborn
-            parent_tree = None
-            if not is_unborn:
+            diff = None
+
+            if is_unborn:
+                # For an unborn repo, any staged file is a change for the initial commit.
+                # We create a diff against an empty tree to represent this.
+                if len(repo.index) > 0:
+                    empty_tree_oid = repo.TreeBuilder().write()
+                    diff = repo.index.diff_to_tree(repo[empty_tree_oid])
+            else:
+                # For an existing repo, diff against the parent commit's tree.
                 parent_tree = repo.head.peel().tree
+                diff = repo.index.diff_to_tree(parent_tree)
 
-            # Key Fix: Use diff_to_tree for a robust comparison between the
-            # current index and the parent commit's tree. This correctly
-            # detects staged changes regardless of pygit2's internal caching.
-            diff = repo.index.diff_to_tree(parent_tree)
-
-            # An initial commit with content will create a diff.
-            # A subsequent commit with no changes will not.
             if not diff:
                 return {"success": True, "commit_hash": None, "message": "No changes to commit."}
 
@@ -363,7 +364,6 @@ class GitEngine(RepositoryEngine):
                 timestamp = int(datetime.now(UTC).timestamp())
                 offset = 0  # UTC
                 signature = pygit2.Signature(fallback_name, fallback_email, timestamp, offset)
-
 
             change_summary = self._generate_change_summary(diff)
             commit_message_template_str = message_template or self._get_config_value(
@@ -394,8 +394,6 @@ class GitEngine(RepositoryEngine):
             self._log.exception("Unexpected error performing commit", repo_id=state.repo_id)
             return CommitResult(success=False, message=f"Unexpected commit error: {e}")
 
-    
-
     async def perform_push(
         self,
         state: RepositoryState,
@@ -408,9 +406,13 @@ class GitEngine(RepositoryEngine):
             return PushResult(success=True, skipped=True, message="Push disabled by config.")
 
         remote_name = self._get_config_value("remote", config, "origin")
-        
+
         def _blocking_perform_push():
             repo = self._get_repo(working_dir)
+
+            if remote_name not in repo.remotes:
+                raise ValueError(f"Remote '{remote_name}' not found in repository.")
+
             branch_name = self._get_config_value("branch", config) or repo.head.shorthand
             remote = repo.remotes[remote_name]
             callbacks = pygit2.RemoteCallbacks(credentials=self._credentials_callback)
@@ -420,9 +422,10 @@ class GitEngine(RepositoryEngine):
         try:
             result_dict = await asyncio.to_thread(_blocking_perform_push)
             return PushResult(**result_dict)
-        except KeyError as e:
-            self._log.error(f"Remote '{remote_name}' not found, returned error {e}.", repo_id=state.repo_id)
-            return PushResult(success=False, message=f"Remote '{remote_name}' not found.")
+        except (ValueError, KeyError):
+            message = f"Remote '{remote_name}' not found."
+            self._log.warning("Push failed: remote not found.", remote_name=remote_name, repo_id=state.repo_id)
+            return PushResult(success=False, message=message)
         except pygit2.GitError as e:
             self._log.error("Failed to perform push", error=str(e), repo_id=state.repo_id)
             return PushResult(success=False, message=f"Git push error: {e}")
@@ -436,7 +439,7 @@ class GitEngine(RepositoryEngine):
             repo = self._get_repo(working_dir)
             if repo.is_empty or repo.head_is_unborn:
                 return ["Repository is empty or unborn."]
-            
+
             last_commits = []
             for commit in repo.walk(repo.head.target, pygit2.GIT_SORT_TIME):
                 if len(last_commits) >= limit:
@@ -446,7 +449,7 @@ class GitEngine(RepositoryEngine):
                 author_name = commit.author.name if commit.author else "Unknown"
                 last_commits.append(f"{str(commit.id)[:7]} - {author_name} - {commit_time} - {summary}")
             return last_commits
-        
+
         try:
             return await asyncio.to_thread(_blocking_get_history)
         except pygit2.GitError as e:

@@ -197,7 +197,7 @@ class ActionHandler:
                 repo_state.update_status(RepositoryStatus.ERROR, f"Staging failed: {stage_result.message}")
                 self.tui.post_state_update(self.repo_states)
                 return
-            
+
             staged_diff = await self._get_staged_diff(repo_config.path)
             commit_message = ""
 
@@ -252,7 +252,7 @@ class ActionHandler:
                 repo_state.reset_after_action()
             else:
                 repo_state.last_commit_short_hash = commit_result.commit_hash[:7]
-                
+
                 if llm_config and llm_config.enabled and llm_config.generate_change_fragment and llm_provider:
                     summary_result = await repo_engine.get_summary(repo_config.path)
                     final_commit_message = summary_result.head_commit_message_summary or ""
@@ -260,15 +260,16 @@ class ActionHandler:
                     await self._save_change_fragment(fragment, repo_config.path, llm_config.change_fragment_dir, commit_result.commit_hash)
 
                 # 4. Perform Push
+                action_log.info("Commit successful", commit_hash=repo_state.last_commit_short_hash)
                 repo_state.update_status(RepositoryStatus.PUSHING)
                 push_result: PushResult = await repo_engine.perform_push(
                     repo_state, repo_config.repository, self.config.global_config, repo_config.path
                 )
                 if not push_result.success:
                     action_log.warning("Push failed", reason=push_result.message)
-                
+
                 repo_state.reset_after_action()
-            
+
             self.tui.post_state_update(self.repo_states)
 
         except Exception as e:
