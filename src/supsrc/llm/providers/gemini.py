@@ -4,6 +4,7 @@
 """
 LLMProvider implementation for Google Gemini.
 """
+import asyncio
 import re
 
 import structlog
@@ -17,7 +18,7 @@ from supsrc.llm.prompts import (
 )
 
 try:
-    import google.generativeai as genai
+    from google import genai
 except ImportError:
     genai = None
 
@@ -32,7 +33,7 @@ def _clean_llm_output(raw_text: str) -> str:
         return match.group(1).strip()
 
     # If no markdown, find the last non-empty line, which is often the answer
-    lines = [line.strip() for line in raw_text.strip().split('\n')]
+    lines = [line.strip() for line in raw_text.strip().split("\n")]
     non_empty_lines = [line for line in lines if line]
     return non_empty_lines[-1] if non_empty_lines else raw_text
 
@@ -42,18 +43,22 @@ class GeminiProvider:
 
     def __init__(self, model: str, api_key: str | None = None) -> None:
         if not genai:
-            raise ImportError("Google Gemini library not found. Please install `supsrc[llm]`.")
-        if not api_key:
-            raise ValueError("Gemini provider requires an API key.")
+            raise ImportError("Google GenAI library not found. Please install `supsrc[llm]`.")
 
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(model)
+        self.client = genai.Client(api_key=api_key)  # API key can be None
+        self.model_name = model
         log.info("GeminiProvider initialized", model=model)
 
     async def _generate(self, prompt: str) -> str:
         """Internal helper to run generation."""
         try:
-            response = await self.model.generate_content_async(prompt)
+            # The new SDK uses a synchronous generate_content method on the client.
+            # We run it in a thread to keep our provider async.
+            response = await asyncio.to_thread(
+                self.client.models.generate_content,
+                model=self.model_name,
+                contents=prompt,
+            )
             return response.text.strip()
         except Exception as e:
             log.error("Gemini API call failed", error=str(e), exc_info=True)

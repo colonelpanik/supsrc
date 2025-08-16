@@ -1,4 +1,3 @@
-
 <div align="center">
 
 # 🔼⚙️ `supsrc`
@@ -61,6 +60,12 @@ uv pip install supsrc
 
 # Install with TUI support
 uv pip install 'supsrc[tui]'
+
+# Install with LLM support (Gemini and Ollama)
+uv pip install 'supsrc[llm]'
+
+# Install with all optional features
+uv pip install 'supsrc[tui,llm]'
 ```
 
 ### Using pip
@@ -72,6 +77,9 @@ pip install supsrc
 
 # With TUI support
 pip install 'supsrc[tui]'
+
+# With LLM support
+pip install 'supsrc[llm]'
 ```
 
 ## 💡 Usage
@@ -173,6 +181,74 @@ log_level = "INFO" # DEBUG, INFO, WARNING, ERROR, CRITICAL
 *   `SUPSRC_LOG_FILE`: Path to write JSON logs to a file.
 *   `SUPSRC_JSON_LOGS`: Set to `true`, `1`, `yes`, or `on` to output console logs as JSON.
 
+## 🧠 LLM Configuration (Optional)
+
+`supsrc` can use Large Language Models (LLMs) to automate tasks like generating commit messages, reviewing changes for obvious errors, and analyzing test failures. This requires the `supsrc[llm]` extra to be installed.
+
+To enable LLM features for a specific repository, add an `[repositories.<repo_id>.llm]` section to your `supsrc.conf`.
+
+```toml
+# In your supsrc.conf file...
+
+[repositories.my-llm-project]
+  path = "~/dev/my-llm-project"
+  enabled = true
+  [repositories.my-llm-project.rule]
+    type = "supsrc.rules.inactivity"
+    period = "2m"
+  [repositories.my-llm-project.repository]
+    type = "supsrc.engines.git"
+    auto_push = true
+
+  # --- LLM Configuration Section ---
+  [repositories.my-llm-project.llm]
+    # Enable LLM features for this repo
+    enabled = true
+
+    # --- Provider Setup ---
+    # Choose your LLM provider: "gemini" or "ollama"
+    provider = "gemini"
+    # Specify the model to use
+    model = "gemini-1.5-flash" # For Gemini
+    # model = "llama3" # Example for Ollama
+
+    # (For Gemini) Specify the environment variable containing your API key
+    api_key_env_var = "GEMINI_API_KEY"
+
+    # --- Feature Flags ---
+    # Automatically generate the commit message subject line
+    generate_commit_message = true
+    # Use Conventional Commits format for the generated message
+    use_conventional_commit = true
+    # Perform a quick review of changes and veto the commit on critical issues (e.g., secrets)
+    review_changes = true
+    # Run a test command before committing
+    run_tests = true
+    # If tests fail, use the LLM to analyze the failure output
+    analyze_test_failures = true
+
+    # --- Additional Settings ---
+    # Specify the command to run for tests. If not set, supsrc tries to infer it.
+    test_command = "pytest"
+```
+
+### Provider Details
+
+*   **Gemini (`provider = "gemini"`)**
+    *   Uses the Google Gemini API.
+    *   Requires an API key. By default, it looks for the key in the `GEMINI_API_KEY` environment variable. You can change the variable name with `api_key_env_var`.
+    *   **Setup:**
+        1.  Get a Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey).
+        2.  Set the environment variable: `export GEMINI_API_KEY="your-api-key-here"`
+
+*   **Ollama (`provider = "ollama"`)**
+    *   Connects to a local [Ollama](https://ollama.ai/) instance.
+    *   Does not require an API key.
+    *   **Setup:**
+        1.  Install and run Ollama on your machine.
+        2.  Pull a model you want to use, e.g., `ollama pull llama3`.
+        3.  Set `provider = "ollama"` and `model = "llama3"` (or your chosen model) in the config.
+
 ## 룰 Rules Explained
 
 The `[repositories.*.rule]` section defines when `supsrc` should trigger its actions (stage, commit, push).
@@ -208,7 +284,7 @@ The Git engine currently supports:
 
 ## 🖥️ Textual TUI (Optional)
 
-If installed (`pip install 'supsrc[tui]'`) and run with `supsrc watch --tui`, a terminal user interface provides:
+If installed (`pip install 'supsrc[tui]'`) and run with `supsrc watch`, a terminal user interface provides:
 
 *   A live-updating table showing the status, last change time, save count, and errors for each monitored repository.
 *   A scrolling log view displaying messages from `supsrc`.
@@ -234,8 +310,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Install in development mode with TUI support
-uv pip install -e ".[tui]"
+# Install in development mode with all optional features
+uv pip install -e ".[tui,llm]"
 
 # Install development tools
 uv pip install pytest ruff mypy
