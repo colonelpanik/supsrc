@@ -181,8 +181,10 @@ class ActionHandler:
             if not status_result.success or status_result.is_conflicted or status_result.is_clean:
                 if not status_result.success:
                     repo_state.update_status(RepositoryStatus.ERROR, f"Status check failed: {status_result.message}")
+                    repo_state.action_description = "Status check failed."
                 elif status_result.is_conflicted:
                     repo_state.update_status(RepositoryStatus.ERROR, "Repo has conflicts.")
+                    repo_state.action_description = "Merge conflict detected."
                 else: # is_clean
                     repo_state.reset_after_action()
                 self.tui.post_state_update(self.repo_states)
@@ -190,11 +192,13 @@ class ActionHandler:
 
             # 2. Stage Changes
             repo_state.update_status(RepositoryStatus.STAGING)
+            repo_state.action_description = "Staging changes..."
             stage_result: StageResult = await repo_engine.stage_changes(
                 None, repo_state, repo_config.repository, self.config.global_config, repo_config.path
             )
             if not stage_result.success:
                 repo_state.update_status(RepositoryStatus.ERROR, f"Staging failed: {stage_result.message}")
+                repo_state.action_description = "Staging failed."
                 self.tui.post_state_update(self.repo_states)
                 return
 
@@ -207,32 +211,39 @@ class ActionHandler:
                 llm_provider = self._get_llm_provider(llm_config)
                 if not llm_provider:
                     repo_state.update_status(RepositoryStatus.ERROR, "LLM provider failed to init.")
+                    repo_state.action_description = "LLM provider failed."
                     self.tui.post_state_update(self.repo_states)
                     return
 
                 if llm_config.review_changes:
                     repo_state.update_status(RepositoryStatus.REVIEWING)
+                    repo_state.action_description = "Reviewing changes with LLM..."
                     veto, reason = await llm_provider.review_changes(staged_diff)
                     if veto:
                         repo_state.update_status(RepositoryStatus.ERROR, f"LLM Review Veto: {reason}")
+                        repo_state.action_description = f"LLM Review Veto: {reason}"
                         self.tui.post_state_update(self.repo_states)
                         return
 
                 if llm_config.run_tests:
                     repo_state.update_status(RepositoryStatus.TESTING)
+                    repo_state.action_description = "Running automated tests..."
                     exit_code, stdout, stderr = await self._run_tests(llm_config.test_command, repo_config.path)
                     if exit_code != 0:
                         failure_output = f"STDOUT:\n{stdout}\n\nSTDERR:\n{stderr}"
                         analysis = "Test run failed."
                         if llm_config.analyze_test_failures:
                             repo_state.update_status(RepositoryStatus.ANALYZING)
+                            repo_state.action_description = "Analyzing test failure with LLM..."
                             analysis = await llm_provider.analyze_test_failure(failure_output)
                         repo_state.update_status(RepositoryStatus.ERROR, f"Tests Failed: {analysis}")
+                        repo_state.action_description = "Automated tests failed."
                         self.tui.post_state_update(self.repo_states)
                         return
 
                 if llm_config.generate_commit_message:
                     repo_state.update_status(RepositoryStatus.GENERATING_COMMIT)
+                    repo_state.action_description = "Generating commit message with LLM..."
                     # The LLM now generates only the subject line of the commit.
                     llm_subject = await llm_provider.generate_commit_message(
                         staged_diff, llm_config.use_conventional_commit
@@ -242,12 +253,14 @@ class ActionHandler:
 
             # 3. Perform Commit
             repo_state.update_status(RepositoryStatus.COMMITTING)
+            repo_state.action_description = "Performing commit..."
             commit_result: CommitResult = await repo_engine.perform_commit(
                 commit_message, repo_state, repo_config.repository, self.config.global_config, repo_config.path
             )
 
             if not commit_result.success:
                 repo_state.update_status(RepositoryStatus.ERROR, f"Commit failed: {commit_result.message}")
+                repo_state.action_description = "Commit operation failed."
             elif commit_result.commit_hash is None:
                 repo_state.reset_after_action()
             else:
@@ -262,6 +275,7 @@ class ActionHandler:
                 # 4. Perform Push
                 action_log.info("Commit successful", commit_hash=repo_state.last_commit_short_hash)
                 repo_state.update_status(RepositoryStatus.PUSHING)
+                repo_state.action_description = "Pushing to remote..."
                 push_result: PushResult = await repo_engine.perform_push(
                     repo_state, repo_config.repository, self.config.global_config, repo_config.path
                 )
@@ -276,4 +290,5 @@ class ActionHandler:
             action_log.critical("Unexpected error in action sequence", error=str(e), exc_info=True)
             if repo_state:
                 repo_state.update_status(RepositoryStatus.ERROR, f"Action failure: {e}")
+                repo_state.action_description = "Unexpected action failure."
                 self.tui.post_state_update(self.repo_states)
